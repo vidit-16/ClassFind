@@ -1,16 +1,20 @@
 import os
+import shutil
 import tempfile
 import unittest
+from io import BytesIO
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret"
 
-from app import Item, User, app, db
+from app import Claim, Item, User, app, db
 
 
 class ClassFindTestCase(unittest.TestCase):
     def setUp(self):
         app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
+        self.upload_dir = tempfile.mkdtemp()
+        app.config["UPLOAD_FOLDER"] = self.upload_dir
         self.client = app.test_client()
         with app.app_context():
             db.drop_all()
@@ -20,6 +24,7 @@ class ClassFindTestCase(unittest.TestCase):
         with app.app_context():
             db.session.remove()
             db.drop_all()
+        shutil.rmtree(self.upload_dir, ignore_errors=True)
 
     def register(self, name="Alice", email="alice@example.com", password="secret123"):
         return self.client.post(
@@ -35,11 +40,26 @@ class ClassFindTestCase(unittest.TestCase):
             follow_redirects=True,
         )
 
+    def report(self, title, description, category, location, status, image_url=""):
+        return self.client.post(
+            "/report",
+            data={
+                "title": title,
+                "description": description,
+                "category": category,
+                "location": location,
+                "status": status,
+                "image_url": image_url,
+            },
+            follow_redirects=True,
+        )
+
     def test_public_home_and_auth_pages(self):
         self.assertEqual(self.client.get("/").status_code, 200)
         self.assertEqual(self.client.get("/login").status_code, 200)
         self.assertEqual(self.client.get("/register").status_code, 200)
         self.assertEqual(self.client.get("/matches").status_code, 200)
+        self.assertEqual(self.client.get("/claims").status_code, 302)
 
     def test_registration_report_search_match_and_resolution(self):
         response = self.register()
@@ -50,38 +70,25 @@ class ClassFindTestCase(unittest.TestCase):
             self.assertIsNotNone(user)
             self.assertTrue(user.is_admin)
 
-        response = self.client.post(
-            "/report",
-            data={
-                "title": "Black wallet",
-                "description": "Black leather wallet with student ID",
-                "category": "Wallet & ID",
-                "location": "BIT Library",
-                "status": "Lost",
-                "image_url": "",
-            },
-            follow_redirects=True,
+        response = self.report(
+            "Black wallet",
+            "Black leather wallet with student ID",
+            "Wallet & ID",
+            "BIT Library",
+            "Lost",
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Black wallet", response.data)
 
-        self.client.post(
-            "/logout",
-            follow_redirects=True,
-        )
+        self.client.post("/logout", follow_redirects=True)
 
         self.register("Bob", "bob@example.com", "secret123")
-        self.client.post(
-            "/report",
-            data={
-                "title": "Black leather wallet",
-                "description": "Wallet found near the library with a student ID",
-                "category": "Wallet & ID",
-                "location": "BIT Library",
-                "status": "Found",
-                "image_url": "",
-            },
-            follow_redirects=True,
+        self.report(
+            "Black leather wallet",
+            "Wallet found near the library with a student ID",
+            "Wallet & ID",
+            "BIT Library",
+            "Found",
         )
 
         response = self.client.get("/?q=wallet&status=Found")
@@ -110,23 +117,102 @@ class ClassFindTestCase(unittest.TestCase):
         with app.app_context():
             self.assertEqual(db.session.get(Item, lost.id).status, "Resolved")
 
+    def test_edit_and_image_upload(self):
+        self.register()
+        self.report(
+            "Blue bottle",
+            "Metal bottle with sticker",
+            "Accessories",
+            "Lab 1",
+            "Lost",
+        )
+        with app.app_context():
+            item = Item.query.filter_by(title="Blue bottle").first()
+            item_id = item.id
+
+        response = self.client.get(f"/item/{item_id}/edit")
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.post(
+            f"/item/{item_id}/edit",
+            data={
+                "title": "Blue steel bottle",
+                "description": "Steel bottle with a mountain sticker",
+                "category": "Accessories",
+                "location": "Lab 3",
+                "status": "Lost",
+                "image_file": (BytesIO(b"fake-image-data"), "bottle.png"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Blue steel bottle", response.data)
+
+        with app.app_context():
+            item = db.session.get(Item, item_id)
+            self.assertEqual(item.location, "Lab 3")
+            self.assertTrue(item.image_url.startswith("/static/uploads/"))
+            stored_name = os.path.basename(item.image_url)
+
+        self.assertTrue(os.path.exists(os.path.join(self.upload_dir, stored_name)))
+
+    def test_claim_workflow(self):
+        self.register("Finder", "finder@example.com")
+        self.report(
+            "Black AirPods",
+            "Black earbuds in a charging case",
+            "Electronics",
+            "Library",
+            "Found",
+        )
+        with app.app_context():
+            found = Item.query.filter_by(title="Black AirPods").first()
+            found_id = found.id
+
+        self.client.post("/logout", follow_redirects=True)
+        self.register("Owner", "owner@example.com")
+
+        response = self.client.post(
+            f"/item/{found_id}/claim",
+            data={"message": "I lost these after studying in the library."},
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Claim submitted", response.data)
+
+        with app.app_context():
+            claim = Claim.query.first()
+            claim_id = claim.id
+            self.assertEqual(claim.status, "Pending")
+
+        self.client.post("/logout", follow_redirects=True)
+        self.login("finder@example.com")
+
+        response = self.client.post(
+            f"/claims/{claim_id}/accept",
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Claim accepted", response.data)
+
+        with app.app_context():
+            claim = db.session.get(Claim, claim_id)
+            self.assertEqual(claim.status, "Accepted")
+            self.assertEqual(db.session.get(Item, found_id).status, "Resolved")
+
     def test_admin_dashboard_and_delete(self):
         self.register()
         response = self.client.get("/admin")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"ClassFind control room", response.data)
 
-        self.client.post(
-            "/report",
-            data={
-                "title": "Keys",
-                "description": "Silver keys",
-                "category": "Keys",
-                "location": "Lab 2",
-                "status": "Found",
-                "image_url": "",
-            },
-            follow_redirects=True,
+        self.report(
+            "Keys",
+            "Silver keys",
+            "Keys",
+            "Lab 2",
+            "Found",
         )
 
         with app.app_context():
