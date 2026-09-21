@@ -174,6 +174,16 @@ def delete_local_image(image_url):
         pass
 
 
+@app.get("/health")
+def health():
+    try:
+        db.session.execute(db.text("SELECT 1"))
+        return {"status": "ok", "database": "ok"}, 200
+    except Exception:
+        db.session.rollback()
+        return {"status": "error", "database": "unavailable"}, 503
+
+
 @app.route("/")
 def index():
     query = request.args.get("q", "").strip()
