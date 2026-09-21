@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}My Reports — ClassFind{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div><p class="eyebrow">MY CLASSFIND</p><h1>Hi, {{ user.name }}.</h1><p>Reports published from your account.</p></div>
+  <a class="primary-btn" href="{{ url_for('report') }}">+ Report item</a>
+</section>
+{% if items %}
+<section class="item-grid">{% for item in items %}
+<article class="item-card">
+  <div class="item-visual">{% if item.image_url %}<img src="{{ item.image_url }}" alt="{{ item.title }}">{% else %}<span>{{ item.category[:1].upper() }}</span>{% endif %}<span class="status-pill {{ item.status_class }}">{{ item.status }}</span></div>
+  <div class="item-body"><p class="item-category">{{ item.category }}</p><h3>{{ item.title }}</h3><p class="item-description">{{ item.description }}</p><div class="item-meta"><span>⌖ {{ item.location }}</span><span>{{ item.created_at.strftime("%d %b %Y") }}</span></div><a class="card-link" href="{{ url_for('item_detail', item_id=item.id) }}">View report →</a></div>
+</article>
+{% endfor %}</section>
+{% else %}
+<div class="empty-state"><div class="empty-icon">C</div><h3>No reports yet</h3><p>Your lost and found reports will appear here.</p><a class="primary-btn compact" href="{{ url_for('report') }}">Create your first report</a></div>
+{% endif %}
+{% endblock %}
