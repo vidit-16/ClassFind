@@ -1,33 +1,57 @@
 {% extends "base.html" %}
 {% block title %}Report Item — ClassFind{% endblock %}
 {% block content %}
-<section class="form-wrap">
-  <div class="form-intro">
-    <p class="eyebrow">COMMUNITY REPORT</p>
-    <h1>Report a lost or found item.</h1>
-    <p>Your account details are attached automatically, so you can manage this report later from My Reports.</p>
+<section class="form-wrap wide-form">
+  <div class="form-intro form-intro-split">
+    <div>
+      <p class="eyebrow">COMMUNITY REPORT</p>
+      <h1>Give a lost or found item a way home.</h1>
+      <p>Your account details are attached automatically. Add enough detail for someone to recognize the item without sharing sensitive information.</p>
+    </div>
+    <div class="report-progress" aria-label="Report steps">
+      <span class="active"><b>1</b> Details</span><span><b>2</b> Verify</span><span><b>3</b> Publish</span>
+    </div>
   </div>
-  <form class="report-form" method="post" enctype="multipart/form-data">
-<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div class="form-section">
-      <p class="section-kicker">ITEM DETAILS</p>
-      <div class="field-grid">
-        <label>Item name *<input name="title" required maxlength="120" placeholder="e.g. Black water bottle"></label>
-        <label>Category *<select name="category" required><option value="">Choose a category</option><option>Electronics</option><option>Books & Notes</option><option>Wallet & ID</option><option>Keys</option><option>Clothing</option><option>Stationery</option><option>Accessories</option><option>Other</option></select></label>
+  <div class="form-layout">
+    <form class="report-form" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-section">
+        <p class="section-kicker">ITEM DETAILS</p>
+        <div class="field-grid">
+          <label>Item name *<input name="title" required maxlength="120" placeholder="e.g. Black water bottle" autofocus></label>
+          <label>Category *<select name="category" required><option value="">Choose a category</option><option>Electronics</option><option>Books & Notes</option><option>Wallet & ID</option><option>Keys</option><option>Clothing</option><option>Stationery</option><option>Accessories</option><option>Other</option></select></label>
+        </div>
+        <label>Description *<textarea name="description" required maxlength="1000" rows="6" placeholder="Colour, brand, markings, stickers, model, or anything else that helps identify it."></textarea></label>
+        <div class="field-grid">
+          <label>Location *<input name="location" required maxlength="120" placeholder="e.g. BIT Library, 2nd floor"></label>
+          <label>Report type *<select name="status" required><option value="">Choose one</option><option value="Lost">I lost this item</option><option value="Found">I found this item</option></select></label>
+        </div>
       </div>
-      <label>Description *<textarea name="description" required maxlength="1000" rows="5" placeholder="Add colour, brand, identifying marks, or anything else that can help identify it."></textarea></label>
-      <div class="field-grid">
-        <label>Location *<input name="location" required maxlength="120" placeholder="e.g. BIT Library, 2nd floor"></label>
-        <label>Report type *<select name="status" required><option value="">Choose one</option><option value="Lost">I lost this item</option><option value="Found">I found this item</option></select></label>
+      <div class="form-section">
+        <p class="section-kicker">IMAGE</p>
+        <div class="upload-tip"><strong>Tip:</strong> A clear image makes matching easier.</div>
+        <label>Upload image <span class="optional">(optional, max 5 MB)</span>
+          <input type="file" name="image_file" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp">
+        </label>
+        <label>Or use an image URL <span class="optional">(optional)</span><input type="url" name="image_url" maxlength="500" placeholder="https://example.com/photo.jpg"></label>
       </div>
-      <label>Upload image <span class="optional">(optional, max 5 MB)</span><input type="file" name="image_file" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp"></label>
-<label>Or use an image URL <span class="optional">(optional)</span><input type="url" name="image_url" maxlength="500" placeholder="https://..."></label>
-    </div>
-    <div class="form-section">
-      <p class="section-kicker">REPORTER</p>
-      <div class="account-summary"><strong>{{ current_user.name }}</strong><span>{{ current_user.email }}</span><small>These details are stored with the report and used to let you manage it.</small></div>
-    </div>
-    <div class="form-actions"><a class="secondary-btn" href="{{ url_for('index') }}">Cancel</a><button class="primary-btn" type="submit">Publish report <span>→</span></button></div>
-  </form>
+      <div class="form-section">
+        <p class="section-kicker">REPORTER</p>
+        <div class="account-summary"><strong>{{ current_user.name }}</strong><span>{{ current_user.email }}</span><small>Attached automatically so you can manage this report later.</small></div>
+      </div>
+      <div class="form-actions"><a class="secondary-btn" href="{{ url_for('index') }}">Cancel</a><button class="primary-btn" type="submit">Publish report <span>→</span></button></div>
+    </form>
+    <aside class="form-aside">
+      <div class="aside-card">
+        <p class="section-kicker">MAKE IT EASY TO FIND</p>
+        <h2>Three details help most.</h2>
+        <div class="tip-list">
+          <div><span>01</span><strong>Describe the item</strong><p>Colour, brand, size, stickers, or identifying marks.</p></div>
+          <div><span>02</span><strong>Be precise about place</strong><p>Building, floor, lab, library zone, or nearby landmark.</p></div>
+          <div><span>03</span><strong>Protect private details</strong><p>Don't post passwords, card numbers, or other sensitive information.</p></div>
+        </div>
+      </div>
+    </aside>
+  </div>
 </section>
 {% endblock %}
