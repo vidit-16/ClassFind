@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Request rejected — ClassFind{% endblock %}
+{% block content %}
+<section class="empty-state large">
+  <div class="empty-icon">!</div>
+  <p class="section-kicker">REQUEST REJECTED</p>
+  <h3>That request couldn't be processed.</h3>
+  <p>{{ message }}</p>
+  <a class="primary-btn compact" href="{{ url_for('index') }}">Back to ClassFind</a>
+</section>
+{% endblock %}
