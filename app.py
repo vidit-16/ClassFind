@@ -70,6 +70,8 @@ class Claim(db.Model):
     status = db.Column(db.String(20), nullable=False, default="Pending")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     decided_at = db.Column(db.DateTime)
+    item = db.relationship("Item")
+    claimant = db.relationship("User")
 
 
 with app.app_context():
