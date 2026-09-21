@@ -2,8 +2,14 @@
 {% block title %}Potential Matches — ClassFind{% endblock %}
 {% block content %}
 <section class="page-heading">
-  <div><p class="eyebrow">SMART MATCHING</p><h1>Potential item matches.</h1><p>ClassFind compares active Lost and Found reports using category, location and shared descriptive keywords.</p></div>
+  <div>
+    <div class="hero-topline"><p class="eyebrow">SMART MATCHING</p><span class="live-chip"><span class="live-dot"></span>Automatic comparison</span></div>
+    <h1>Potential connections,<br><span class="heading-accent">ranked by detail.</span></h1>
+    <p>ClassFind compares active Lost and Found reports using category, title similarity, shared keywords, location overlap, and how recently they were reported.</p>
+  </div>
+  <a class="secondary-btn" href="{{ url_for('index') }}">Back to board</a>
 </section>
+<div class="match-explainer"><span>How matching works</span><strong>More shared detail → higher match percentage</strong><p>The percentage is a signal for where to look first, not proof of ownership.</p></div>
 {% if pairs %}
 <section class="match-list">
 {% for lost, found, score, reasons in pairs %}
@@ -16,7 +22,11 @@
     <span class="match-meta">⌖ {{ lost.location }}</span>
     <a class="card-link" href="{{ url_for('item_detail', item_id=lost.id) }}">Open lost report →</a>
   </div>
-  <div class="match-score"><strong>{{ score }}%</strong><span>match</span><small>{{ reasons|join(" · ") }}</small></div>
+  <div class="match-score">
+    <div class="score-orbit"><span>{{ score }}%</span></div>
+    <span>match</span>
+    <small>{{ reasons|join(" · ") }}</small>
+  </div>
   <div class="match-side">
     <span class="status-pill status-found">Found</span>
     <p class="item-category">{{ found.category }}</p>
@@ -29,6 +39,6 @@
 {% endfor %}
 </section>
 {% else %}
-<div class="empty-state"><div class="empty-icon">⌁</div><h3>No strong matches yet</h3><p>As students add reports, ClassFind will compare the active lost and found items.</p><a class="primary-btn compact" href="{{ url_for('report') }}">Add a report</a></div>
+<div class="empty-state"><div class="empty-icon">⌁</div><p class="section-kicker">NO STRONG MATCHES YET</p><h3>The board is still learning.</h3><p>As students add reports, ClassFind will compare active lost and found items for overlapping details.</p><a class="primary-btn compact" href="{{ url_for('report') }}">Add a report</a></div>
 {% endif %}
 {% endblock %}
