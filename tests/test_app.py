@@ -225,6 +225,41 @@ class ClassFindTestCase(unittest.TestCase):
         with app.app_context():
             self.assertIsNone(db.session.get(Item, item_id))
 
+    def test_delete_found_item_cascades_claims(self):
+        self.register("Finder", "finder@example.com")
+        self.report(
+            "Black bag",
+            "Black backpack found in the lab",
+            "Accessories",
+            "Lab 4",
+            "Found",
+        )
+        with app.app_context():
+            found = Item.query.filter_by(title="Black bag").first()
+            found_id = found.id
+
+        self.client.post("/logout", follow_redirects=True)
+        self.register("Owner", "owner@example.com")
+        self.client.post(
+            f"/item/{found_id}/claim",
+            data={"message": "I lost this backpack in the lab yesterday."},
+            follow_redirects=True,
+        )
+
+        with app.app_context():
+            claim = Claim.query.first()
+            self.assertIsNotNone(claim)
+            claim_id = claim.id
+
+        self.client.post("/logout", follow_redirects=True)
+        self.login("finder@example.com")
+        response = self.client.post(f"/item/{found_id}/delete", follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+
+        with app.app_context():
+            self.assertIsNone(db.session.get(Item, found_id))
+            self.assertIsNone(db.session.get(Claim, claim_id))
+
     def test_login_rejects_bad_password(self):
         self.register()
         self.client.post("/logout", follow_redirects=True)
