@@ -26,8 +26,8 @@
         </div>
         <div class="claim-actions">
           {% if claim.status == "Pending" %}
-            <form method="post" action="{{ url_for('accept_claim', claim_id=claim.id) }}"><button class="primary-btn compact" type="submit">Accept claim</button></form>
-            <form method="post" action="{{ url_for('reject_claim', claim_id=claim.id) }}"><button class="danger-btn compact-btn" type="submit">Reject</button></form>
+            <form method="post" action="{{ url_for('accept_claim', claim_id=claim.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="primary-btn compact" type="submit">Accept claim</button></form>
+            <form method="post" action="{{ url_for('reject_claim', claim_id=claim.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger-btn compact-btn" type="submit">Reject</button></form>
           {% else %}
             <span class="claim-status {{ claim.status|lower }}">{{ claim.status }}</span>
             {% if claim.decided_at %}<small class="decision-time">Decided {{ claim.decided_at.strftime("%d %b %Y") }}</small>{% endif %}
@@ -57,7 +57,7 @@
         <div class="claim-actions">
           <span class="claim-status {{ claim.status|lower }}">{{ claim.status }}</span>
           {% if claim.status == "Pending" %}
-            <form method="post" action="{{ url_for('withdraw_claim', claim_id=claim.id) }}" onsubmit="return confirm('Withdraw this pending claim?');"><button class="inline-action danger" type="submit">Withdraw</button></form>
+            <form method="post" action="{{ url_for('withdraw_claim', claim_id=claim.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}" onsubmit="return confirm('Withdraw this pending claim?');"><button class="inline-action danger" type="submit">Withdraw</button></form>
           {% endif %}
           <a class="card-link" href="{{ url_for('item_detail', item_id=claim.item.id) }}">Open report →</a>
         </div>
