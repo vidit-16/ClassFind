@@ -38,7 +38,7 @@
 {% for item in items %}
 <article class="item-card">
   <div class="item-visual">
-    {% if item.image_url %}<img src="{{ item.image_url }}" alt="{{ item.title }}">{% else %}<span>{{ item.category[:1].upper() }}</span>{% endif %}
+    {% if item.image_src %}<img src="{{ item.image_src }}" alt="{{ item.title }}">{% else %}<span>{{ item.category[:1].upper() }}</span>{% endif %}
     <span class="status-pill {{ item.status_class }}">{{ item.status }}</span>
   </div>
   <div class="item-body">
