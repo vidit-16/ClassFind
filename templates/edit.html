@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ item.title }} — ClassFind{% endblock %}
+{% block content %}
+<section class="form-wrap">
+  <div class="form-intro">
+    <p class="eyebrow">EDIT REPORT</p>
+    <h1>Keep your report up to date.</h1>
+    <p>Update the details, status, or image so other students always see useful information.</p>
+  </div>
+  <form class="report-form" method="post" enctype="multipart/form-data">
+    <div class="form-section">
+      <p class="section-kicker">ITEM DETAILS</p>
+      <div class="field-grid">
+        <label>Item name *<input name="title" required maxlength="120" value="{{ item.title }}"></label>
+        <label>Category *<select name="category" required>
+          {% for category in ["Electronics","Books & Notes","Wallet & ID","Keys","Clothing","Stationery","Accessories","Other"] %}
+          <option {% if item.category == category %}selected{% endif %}>{{ category }}</option>
+          {% endfor %}
+        </select></label>
+      </div>
+      <label>Description *<textarea name="description" required maxlength="1000" rows="5">{{ item.description }}</textarea></label>
+      <div class="field-grid">
+        <label>Location *<input name="location" required maxlength="120" value="{{ item.location }}"></label>
+        <label>Status *<select name="status" required>
+          <option value="Lost" {% if item.status == "Lost" %}selected{% endif %}>Lost</option>
+          <option value="Found" {% if item.status == "Found" %}selected{% endif %}>Found</option>
+          <option value="Resolved" {% if item.status == "Resolved" %}selected{% endif %}>Resolved</option>
+        </select></label>
+      </div>
+    </div>
+    <div class="form-section">
+      <p class="section-kicker">IMAGE</p>
+      {% if item.image_url %}
+        <div class="current-image"><img src="{{ item.image_url }}" alt="{{ item.title }}"><div><strong>Current image</strong><span>{{ item.image_url }}</span></div></div>
+        <label class="check-row"><input type="checkbox" name="remove_image" value="1"> Remove current image</label>
+      {% endif %}
+      <label>Upload a new image <span class="optional">(max 5 MB)</span>
+        <input type="file" name="image_file" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp">
+      </label>
+      <label>Or use an image URL <span class="optional">(optional)</span><input type="url" name="image_url" placeholder="https://..."></label>
+    </div>
+    <div class="form-actions"><a class="secondary-btn" href="{{ url_for('item_detail', item_id=item.id) }}">Cancel</a><button class="primary-btn" type="submit">Save changes <span>→</span></button></div>
+  </form>
+</section>
+{% endblock %}
