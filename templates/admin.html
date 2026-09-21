@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard — ClassFind{% endblock %}
+{% block content %}
+<section class="page-heading"><div><p class="eyebrow">ADMIN</p><h1>ClassFind control room.</h1><p>Review users and community reports.</p></div></section>
+<section class="stats-grid">
+  <div class="stat-card"><span>Users</span><strong>{{ user_count }}</strong></div>
+  <div class="stat-card"><span>Total reports</span><strong>{{ stats.total }}</strong></div>
+  <div class="stat-card lost"><span>Lost</span><strong>{{ stats.lost }}</strong></div>
+  <div class="stat-card found"><span>Found</span><strong>{{ stats.found }}</strong></div>
+</section>
+<section class="admin-panel">
+  <div class="results-header"><div><p class="section-kicker">LATEST REPORTS</p><h2>{{ items|length }} recent reports</h2></div></div>
+  <div class="admin-table">
+    <div class="admin-row admin-head"><span>Item</span><span>Type</span><span>Reporter</span><span>Action</span></div>
+    {% for item in items %}
+    <div class="admin-row">
+      <span><strong>{{ item.title }}</strong><small>{{ item.location }}</small></span>
+      <span><span class="status-pill {{ item.status_class }}">{{ item.status }}</span></span>
+      <span>{{ item.reporter_name }}<small>{{ item.contact }}</small></span>
+      <span><a class="card-link" href="{{ url_for('item_detail', item_id=item.id) }}">Open →</a></span>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
