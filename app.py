@@ -57,7 +57,7 @@ class Item(db.Model):
     contact = db.Column(db.String(160), nullable=False)
     image_url = db.Column(db.String(500))
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    claims = db.relationship("Claim", back_populates="item", cascade="all, delete-orphan", passive_deletes=True)
+    claims = db.relationship("Claim", back_populates="item", cascade="all, delete-orphan")
 
     @property
     def image_src(self):
