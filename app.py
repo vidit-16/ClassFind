@@ -1,6 +1,9 @@
 import os
 import re
 from datetime import datetime
+from hmac import compare_digest
+from secrets import token_urlsafe
+from urllib.parse import urlparse
 from difflib import SequenceMatcher
 from functools import wraps
 from pathlib import Path
@@ -9,7 +12,7 @@ from uuid import uuid4
 import boto3
 from botocore.exceptions import ClientError
 
-from flask import Flask, flash, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import or_
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -19,6 +22,7 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "classfind-dev-key")
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.getenv("COOKIE_SECURE", "").lower() in {"1", "true", "yes"}
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 app.config["UPLOAD_FOLDER"] = os.getenv(
     "UPLOAD_FOLDER", str(Path(app.static_folder) / "uploads")
@@ -33,6 +37,49 @@ if database_url.startswith("postgres://"):
 
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+CSRF_SESSION_KEY = "_csrf_token"
+
+
+def csrf_token():
+    token = session.get(CSRF_SESSION_KEY)
+    if not token:
+        token = token_urlsafe(32)
+        session[CSRF_SESSION_KEY] = token
+    return token
+
+
+app.jinja_env.globals["csrf_token"] = csrf_token
+
+
+@app.before_request
+def protect_csrf():
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return
+    expected = session.get(CSRF_SESSION_KEY)
+    supplied = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token")
+    if not expected or not supplied or not compare_digest(expected, supplied):
+        abort(400, description="Invalid or missing CSRF token.")
+
+
+@app.after_request
+def apply_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "style-src 'self' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "script-src 'self'; "
+        "img-src 'self' data: https: http:; "
+        "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    )
+    if request.is_secure:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
 
 db = SQLAlchemy(app)
 
@@ -166,6 +213,13 @@ def allowed_file(filename):
         "." in filename
         and filename.rsplit(".", 1)[1].lower() in app.config["ALLOWED_EXTENSIONS"]
     )
+
+
+def is_safe_image_url(value):
+    if not value:
+        return True
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
 def save_uploaded_image(file_storage):
@@ -400,6 +454,9 @@ def report():
         if not all([title, description, category, location, status]):
             flash("Please fill in every required field.", "error")
             return render_template("report.html")
+        if image_url and not is_safe_image_url(image_url):
+            flash("Image URL must start with http:// or https://.", "error")
+            return render_template("report.html")
         if status not in {"Lost", "Found"}:
             flash("Choose either Lost or Found.", "error")
             return render_template("report.html")
@@ -466,6 +523,9 @@ def edit_item(item_id):
 
         if not all([item.title, item.description, item.category, item.location, status]):
             flash("Please fill in every required field.", "error")
+            return render_template("edit.html", item=item)
+        if image_url and not is_safe_image_url(image_url):
+            flash("Image URL must start with http:// or https://.", "error")
             return render_template("edit.html", item=item)
         if status not in {"Lost", "Found", "Resolved"}:
             flash("Choose Lost, Found or Resolved.", "error")
@@ -772,10 +832,21 @@ def not_found(_error):
     return render_template("404.html"), 404
 
 
+@app.errorhandler(400)
+def bad_request(error):
+    return render_template("400.html", message=getattr(error, "description", "Bad request.")), 400
+
+
 @app.errorhandler(413)
 def too_large(_error):
     flash("Image is too large. Maximum upload size is 5 MB.", "error")
     return redirect(url_for("report"))
+
+
+@app.errorhandler(500)
+def server_error(_error):
+    db.session.rollback()
+    return render_template("500.html"), 500
 
 
 if __name__ == "__main__":
