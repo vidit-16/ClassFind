@@ -237,6 +237,7 @@ def index():
     query = request.args.get("q", "").strip()
     category = request.args.get("category", "").strip()
     status = request.args.get("status", "").strip()
+    sort_order = request.args.get("sort", "newest").strip()
 
     items_query = Item.query
     if query:
@@ -254,7 +255,12 @@ def index():
     if status in {"Lost", "Found", "Resolved"}:
         items_query = items_query.filter_by(status=status)
 
-    items = items_query.order_by(Item.created_at.desc()).all()
+    if sort_order == "oldest":
+        items = items_query.order_by(Item.created_at.asc()).all()
+    else:
+        sort_order = "newest"
+        items = items_query.order_by(Item.created_at.desc()).all()
+
     stats = {
         "total": Item.query.count(),
         "lost": Item.query.filter_by(status="Lost").count(),
@@ -265,15 +271,18 @@ def index():
         row[0]
         for row in db.session.query(Item.category).distinct().order_by(Item.category).all()
     ]
+    latest_item = Item.query.order_by(Item.created_at.desc()).first()
 
     return render_template(
         "index.html",
         items=items,
         stats=stats,
         categories=categories,
+        latest_item=latest_item,
         query=query,
         selected_category=category,
         selected_status=status,
+        sort_order=sort_order,
     )
 
 
@@ -606,6 +615,25 @@ def accept_claim(claim_id):
     return redirect(url_for("claims"))
 
 
+@app.post("/claims/<int:claim_id>/withdraw")
+@login_required
+def withdraw_claim(claim_id):
+    claim = db.get_or_404(Claim, claim_id)
+    user = get_current_user()
+
+    if claim.claimant_id != user.id:
+        flash("You can only withdraw your own claims.", "error")
+        return redirect(url_for("claims"))
+    if claim.status != "Pending":
+        flash("Only pending claims can be withdrawn.", "error")
+        return redirect(url_for("claims"))
+
+    db.session.delete(claim)
+    db.session.commit()
+    flash("Your claim was withdrawn.", "success")
+    return redirect(url_for("claims"))
+
+
 @app.post("/claims/<int:claim_id>/reject")
 @login_required
 def reject_claim(claim_id):
@@ -700,18 +728,42 @@ def matches():
 @app.route("/admin")
 @admin_required
 def admin_dashboard():
+    query = request.args.get("q", "").strip()
+    status = request.args.get("status", "").strip()
+
+    items_query = Item.query
+    if query:
+        pattern = f"%{query}%"
+        items_query = items_query.filter(
+            or_(
+                Item.title.ilike(pattern),
+                Item.description.ilike(pattern),
+                Item.location.ilike(pattern),
+                Item.category.ilike(pattern),
+                Item.reporter_name.ilike(pattern),
+                Item.contact.ilike(pattern),
+            )
+        )
+    if status in {"Lost", "Found", "Resolved"}:
+        items_query = items_query.filter_by(status=status)
+    else:
+        status = ""
+
+    items = items_query.order_by(Item.created_at.desc()).limit(50).all()
     stats = {
         "total": Item.query.count(),
         "lost": Item.query.filter_by(status="Lost").count(),
         "found": Item.query.filter_by(status="Found").count(),
         "resolved": Item.query.filter_by(status="Resolved").count(),
     }
-    items = Item.query.order_by(Item.created_at.desc()).limit(50).all()
     return render_template(
         "admin.html",
         stats=stats,
         items=items,
         user_count=User.query.count(),
+        pending_claims=Claim.query.filter_by(status="Pending").count(),
+        query=query,
+        selected_status=status,
     )
 
 
