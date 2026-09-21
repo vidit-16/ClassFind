@@ -1,25 +1,70 @@
 {% extends "base.html" %}
 {% block title %}Admin Dashboard — ClassFind{% endblock %}
 {% block content %}
-<section class="page-heading"><div><p class="eyebrow">ADMIN</p><h1>ClassFind control room.</h1><p>Review users and community reports.</p></div></section>
-<section class="stats-grid">
-  <div class="stat-card"><span>Users</span><strong>{{ user_count }}</strong></div>
-  <div class="stat-card"><span>Total reports</span><strong>{{ stats.total }}</strong></div>
-  <div class="stat-card lost"><span>Lost</span><strong>{{ stats.lost }}</strong></div>
-  <div class="stat-card found"><span>Found</span><strong>{{ stats.found }}</strong></div>
+<section class="page-heading admin-heading">
+  <div>
+    <div class="hero-topline"><p class="eyebrow">ADMIN CONTROL ROOM</p><span class="live-chip"><span class="live-dot"></span>System overview</span></div>
+    <h1>Keep the campus board healthy.</h1>
+    <p>Search reports, review claim activity, and take action without leaving the dashboard.</p>
+  </div>
+  <a class="primary-btn" href="{{ url_for('index') }}">Browse board <span>→</span></a>
 </section>
+
+<section class="stats-grid dashboard-stats admin-stats">
+  <a class="stat-card stat-card-link" href="{{ url_for('admin_dashboard') }}"><span>Users</span><strong>{{ user_count }}</strong><small>Registered students</small></a>
+  <a class="stat-card stat-card-link" href="{{ url_for('admin_dashboard') }}"><span>Total reports</span><strong>{{ stats.total }}</strong><small>All campus reports</small></a>
+  <a class="stat-card stat-card-link lost" href="{{ url_for('admin_dashboard', status='Lost') }}"><span>Lost</span><strong>{{ stats.lost }}</strong><small>Need attention</small></a>
+  <a class="stat-card stat-card-link found" href="{{ url_for('admin_dashboard', status='Found') }}"><span>Found</span><strong>{{ stats.found }}</strong><small>Potential claims</small></a>
+  <a class="stat-card stat-card-link resolved" href="{{ url_for('admin_dashboard', status='Resolved') }}"><span>Resolved</span><strong>{{ stats.resolved }}</strong><small>Closed reports</small></a>
+  <a class="stat-card stat-card-link claim-stat" href="{{ url_for('claims') }}"><span>Pending claims</span><strong>{{ pending_claims }}</strong><small>Review in Claims</small></a>
+</section>
+
+<section class="admin-toolbar">
+  <div>
+    <p class="section-kicker">REPORT QUEUE</p>
+    <h2>Find a report to review.</h2>
+  </div>
+  <form class="admin-filters" method="get">
+    <label class="search-input-wrap"><span aria-hidden="true">⌕</span><input name="q" value="{{ query }}" placeholder="Search item, place, or reporter" autocomplete="off"></label>
+    <select name="status" aria-label="Filter reports by status">
+      <option value="">All status</option>
+      <option value="Lost" {% if selected_status == "Lost" %}selected{% endif %}>Lost</option>
+      <option value="Found" {% if selected_status == "Found" %}selected{% endif %}>Found</option>
+      <option value="Resolved" {% if selected_status == "Resolved" %}selected{% endif %}>Resolved</option>
+    </select>
+    <button class="primary-btn compact" type="submit">Filter</button>
+    {% if query or selected_status %}<a class="secondary-btn compact-btn" href="{{ url_for('admin_dashboard') }}">Reset</a>{% endif %}
+  </form>
+</section>
+
+<section class="results-header">
+  <div><p class="section-kicker">LATEST REPORTS</p><h2>{{ items|length }} report{% if items|length != 1 %}s{% endif %} in queue</h2></div>
+  <span class="queue-note">Showing up to 50 newest reports</span>
+</section>
+
+{% if items %}
 <section class="admin-panel">
-  <div class="results-header"><div><p class="section-kicker">LATEST REPORTS</p><h2>{{ items|length }} recent reports</h2></div></div>
   <div class="admin-table">
-    <div class="admin-row admin-head"><span>Item</span><span>Type</span><span>Reporter</span><span>Action</span></div>
+    <div class="admin-row admin-head"><span>Item</span><span>Status</span><span>Reporter</span><span>Updated</span><span>Actions</span></div>
     {% for item in items %}
     <div class="admin-row">
-      <span><strong>{{ item.title }}</strong><small>{{ item.location }}</small></span>
+      <span><strong>{{ item.title }}</strong><small>{{ item.category }} · ⌖ {{ item.location }}</small></span>
       <span><span class="status-pill {{ item.status_class }}">{{ item.status }}</span></span>
       <span>{{ item.reporter_name }}<small>{{ item.contact }}</small></span>
-      <span><a class="card-link" href="{{ url_for('item_detail', item_id=item.id) }}">Open →</a></span>
+      <span class="item-age" data-time="{{ item.created_at.isoformat() }}">{{ item.created_at.strftime("%d %b %Y") }}</span>
+      <span class="admin-actions">
+        <a class="card-link" href="{{ url_for('item_detail', item_id=item.id) }}">Open</a>
+        <a class="card-link" href="{{ url_for('edit_item', item_id=item.id) }}">Edit</a>
+        {% if item.status != "Resolved" %}
+          <form method="post" action="{{ url_for('resolve_item', item_id=item.id) }}"><button class="inline-action" type="submit">Resolve</button></form>
+        {% endif %}
+        <form method="post" action="{{ url_for('delete_item', item_id=item.id) }}" onsubmit="return confirm('Delete this report?');"><button class="inline-action danger" type="submit">Delete</button></form>
+      </span>
     </div>
     {% endfor %}
   </div>
 </section>
+{% else %}
+<div class="empty-state empty-dashboard"><div class="empty-icon">⌕</div><p class="section-kicker">QUEUE CLEAR</p><h3>No reports match those filters.</h3><p>Reset the filters to view the latest activity.</p><a class="secondary-btn" href="{{ url_for('admin_dashboard') }}">View all reports</a></div>
+{% endif %}
 {% endblock %}
