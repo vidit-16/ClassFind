@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Report Item — ClassFind{% endblock %}
+{% block content %}
+<section class="form-wrap">
+  <div class="form-intro"><p class="eyebrow">COMMUNITY REPORT</p><h1>Report a lost or found item.</h1><p>Give students enough information to recognize the item without exposing unnecessary personal details.</p></div>
+  <form class="report-form" method="post">
+    <div class="form-section">
+      <p class="section-kicker">ITEM DETAILS</p>
+      <div class="field-grid">
+        <label>Item name *<input name="title" required maxlength="120" placeholder="e.g. Black water bottle"></label>
+        <label>Category *<select name="category" required><option value="">Choose a category</option><option>Electronics</option><option>Books & Notes</option><option>Wallet & ID</option><option>Keys</option><option>Clothing</option><option>Stationery</option><option>Accessories</option><option>Other</option></select></label>
+      </div>
+      <label>Description *<textarea name="description" required maxlength="1000" rows="5" placeholder="Add colour, brand, identifying marks, or anything else that can help identify it."></textarea></label>
+      <div class="field-grid">
+        <label>Location *<input name="location" required maxlength="120" placeholder="e.g. BIT Library, 2nd floor"></label>
+        <label>Report type *<select name="status" required><option value="">Choose one</option><option value="Lost">I lost this item</option><option value="Found">I found this item</option></select></label>
+      </div>
+      <label>Image URL <span class="optional">(optional)</span><input type="url" name="image_url" maxlength="500" placeholder="https://..."></label>
+    </div>
+    <div class="form-section">
+      <p class="section-kicker">CONTACT DETAILS</p>
+      <div class="field-grid">
+        <label>Your name *<input name="reporter_name" required maxlength="100" placeholder="e.g. Vidit"></label>
+        <label>Contact *<input name="contact" required maxlength="160" placeholder="Email or phone number"></label>
+      </div>
+      <p class="form-note">Only share contact information you are comfortable making available to other students using this system.</p>
+    </div>
+    <div class="form-actions"><a class="secondary-btn" href="{{ url_for('index') }}">Cancel</a><button class="primary-btn" type="submit">Publish report <span>→</span></button></div>
+  </form>
+</section>
+{% endblock %}
