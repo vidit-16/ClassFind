@@ -8,6 +8,7 @@
     <p>Create a student account to report lost or found items and keep track of your reports.</p>
   </div>
   <form class="auth-card" method="post">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Your name<input name="name" required maxlength="100" autocomplete="name" placeholder="Your name"></label>
     <label>Email<input type="email" name="email" required maxlength="160" autocomplete="email" placeholder="you@example.com"></label>
     <label>Password<input type="password" name="password" required minlength="6" autocomplete="new-password" placeholder="At least 6 characters"></label>
