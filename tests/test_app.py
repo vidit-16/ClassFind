@@ -66,7 +66,7 @@ class ClassFindTestCase(unittest.TestCase):
 
     def test_csrf_protection_and_security_headers(self):
         self.assertEqual(self.client.get("/").status_code, 200)
-        response = self.post("/logout", follow_redirects=True)
+        response = self.client.post("/logout", follow_redirects=True)
         self.assertEqual(response.status_code, 400)
         with self.client.session_transaction() as session:
             token = session.get("_csrf_token")
@@ -128,7 +128,7 @@ class ClassFindTestCase(unittest.TestCase):
 
         response = self.client.get("/matches")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Potential item matches", response.data)
+        self.assertIn(b"Potential connections", response.data)
 
         with app.app_context():
             lost = Item.query.filter_by(status="Lost").first()
