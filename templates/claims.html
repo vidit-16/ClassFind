@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Claims — ClassFind{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div><p class="eyebrow">CLAIMS</p><h1>Claims & ownership.</h1><p>Review incoming claims for your found items and track claims you have submitted.</p></div>
+</section>
+
+<section class="claim-section">
+  <div class="results-header"><div><p class="section-kicker">INCOMING</p><h2>{{ incoming|length }} claim{% if incoming|length != 1 %}s{% endif %}</h2></div></div>
+  {% if incoming %}
+    <div class="claim-list">
+    {% for claim in incoming %}
+      <article class="claim-card">
+        <div class="claim-main">
+          <span class="status-pill status-found">Found item</span>
+          <h3>{{ claim.item.title }}</h3>
+          <p class="claim-by">Claim from <strong>{{ claim.claimant.name }}</strong> · {{ claim.claimant.email }}</p>
+          <p class="claim-message">“{{ claim.message }}”</p>
+          <small>{{ claim.created_at.strftime("%d %b %Y, %I:%M %p") }}</small>
+        </div>
+        <div class="claim-actions">
+          {% if claim.status == "Pending" %}
+            <form method="post" action="{{ url_for('accept_claim', claim_id=claim.id) }}"><button class="primary-btn" type="submit">Accept claim</button></form>
+            <form method="post" action="{{ url_for('reject_claim', claim_id=claim.id) }}"><button class="danger-btn" type="submit">Reject</button></form>
+          {% else %}
+            <span class="claim-status {{ claim.status|lower }}">{{ claim.status }}</span>
+          {% endif %}
+        </div>
+      </article>
+    {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state compact-empty"><h3>No incoming claims</h3><p>Claims submitted for your found items will appear here.</p></div>
+  {% endif %}
+</section>
+
+<section class="claim-section">
+  <div class="results-header"><div><p class="section-kicker">MY CLAIMS</p><h2>{{ outgoing|length }} submitted</h2></div></div>
+  {% if outgoing %}
+    <div class="claim-list">
+    {% for claim in outgoing %}
+      <article class="claim-card">
+        <div class="claim-main">
+          <span class="status-pill status-lost">Your claim</span>
+          <h3>{{ claim.item.title }}</h3>
+          <p class="claim-by">Reported by {{ claim.item.reporter_name }}</p>
+          <p class="claim-message">“{{ claim.message }}”</p>
+          <small>{{ claim.created_at.strftime("%d %b %Y, %I:%M %p") }}</small>
+        </div>
+        <div class="claim-actions"><span class="claim-status {{ claim.status|lower }}">{{ claim.status }}</span><a class="card-link" href="{{ url_for('item_detail', item_id=claim.item.id) }}">Open report →</a></div>
+      </article>
+    {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state compact-empty"><h3>No submitted claims</h3><p>When you claim a found item, its status will appear here.</p></div>
+  {% endif %}
+</section>
+{% endblock %}
