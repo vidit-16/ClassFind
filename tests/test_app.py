@@ -91,7 +91,7 @@ class ClassFindTestCase(unittest.TestCase):
             "Found",
         )
 
-        response = self.client.get("/?q=wallet&status=Found")
+        response = self.client.get("/?q=wallet&status=Found&sort=oldest")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Black leather wallet", response.data)
 
@@ -219,11 +219,53 @@ class ClassFindTestCase(unittest.TestCase):
             item = Item.query.filter_by(title="Keys").first()
             item_id = item.id
 
+        filtered = self.client.get("/admin?q=Keys&status=Found")
+        self.assertEqual(filtered.status_code, 200)
+        self.assertIn(b"Keys", filtered.data)
+
         response = self.client.post(f"/item/{item_id}/delete", follow_redirects=True)
         self.assertEqual(response.status_code, 200)
 
         with app.app_context():
             self.assertIsNone(db.session.get(Item, item_id))
+
+    def test_withdraw_pending_claim(self):
+        self.register("Finder", "finder2@example.com")
+        self.report(
+            "Green bottle",
+            "Green bottle found outside the lab",
+            "Accessories",
+            "Lab 5",
+            "Found",
+        )
+        with app.app_context():
+            found = Item.query.filter_by(title="Green bottle").first()
+            found_id = found.id
+
+        self.client.post("/logout", follow_redirects=True)
+        self.register("Owner", "owner2@example.com")
+        response = self.client.post(
+            f"/item/{found_id}/claim",
+            data={"message": "I lost this green bottle near the lab yesterday."},
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+
+        with app.app_context():
+            claim = Claim.query.filter_by(item_id=found_id).first()
+            self.assertIsNotNone(claim)
+            claim_id = claim.id
+
+        response = self.client.post(
+            f"/claims/{claim_id}/withdraw",
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"claim was withdrawn", response.data)
+
+        with app.app_context():
+            self.assertIsNone(db.session.get(Claim, claim_id))
+
 
     def test_delete_found_item_cascades_claims(self):
         self.register("Finder", "finder@example.com")
