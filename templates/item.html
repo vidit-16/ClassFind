@@ -14,12 +14,16 @@
       <div><span>Reported on</span><strong>{{ item.created_at.strftime("%d %B %Y") }}</strong></div>
       <div><span>Contact</span><strong>{{ item.contact }}</strong></div>
     </div>
-    {% if item.status != "Resolved" %}
+    {% if can_manage and item.status != "Resolved" %}
     <div class="detail-actions">
       <form method="post" action="{{ url_for('resolve_item', item_id=item.id) }}"><button class="primary-btn" type="submit">Mark as resolved</button></form>
       <form method="post" action="{{ url_for('delete_item', item_id=item.id) }}" onsubmit="return confirm('Delete this report?');"><button class="danger-btn" type="submit">Delete report</button></form>
     </div>
-    {% else %}<div class="resolved-banner">✓ This report has been marked as resolved.</div>{% endif %}
+    {% elif item.status == "Resolved" %}
+      <div class="resolved-banner">✓ This report has been marked as resolved.</div>
+    {% else %}
+      <div class="form-note detail-note">Only the reporter or an administrator can manage this report.</div>
+    {% endif %}
   </div>
 </section>
 {% endblock %}
