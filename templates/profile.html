@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}My Reports — ClassFind{% endblock %}
 {% block content %}
-<section class="page-heading">
-  <div><p class="eyebrow">MY CLASSFIND</p><h1>Hi, {{ user.name }}.</h1><p>Manage your reports and keep track of ownership claims.</p></div>
+<section class="page-heading profile-heading">
+  <div><p class="eyebrow">MY CLASSFIND</p><h1>Hi, {{ user.name }}.</h1><p>Manage reports, follow claims, and keep the campus board moving.</p></div>
   <a class="primary-btn" href="{{ url_for('report') }}">+ Report item</a>
 </section>
 
@@ -13,7 +13,7 @@
   <div><span>Open claims</span><strong>{{ outgoing_claims|selectattr("status","equalto","Pending")|list|length }}</strong></div>
 </section>
 
-<div class="profile-links">
+<div class="profile-links profile-links-row">
   <a class="secondary-btn" href="{{ url_for('claims') }}">View claims {% if incoming_claim_count or outgoing_claim_count %}<span class="count-badge">{{ incoming_claim_count + outgoing_claim_count }}</span>{% endif %}</a>
 </div>
 
