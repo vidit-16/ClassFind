@@ -205,7 +205,7 @@ class ClassFindTestCase(unittest.TestCase):
         self.register()
         response = self.client.get("/admin")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"ClassFind control room", response.data)
+        self.assertIn(b"ADMIN CONTROL ROOM", response.data)
 
         self.report(
             "Keys",
