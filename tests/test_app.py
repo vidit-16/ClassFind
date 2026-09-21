@@ -26,22 +26,32 @@ class ClassFindTestCase(unittest.TestCase):
             db.drop_all()
         shutil.rmtree(self.upload_dir, ignore_errors=True)
 
+    def csrf_token(self):
+        self.client.get("/")
+        with self.client.session_transaction() as session:
+            return session["_csrf_token"]
+
+    def post(self, url, data=None, **kwargs):
+        payload = {} if data is None else dict(data)
+        payload.setdefault("csrf_token", self.csrf_token())
+        return self.client.post(url, data=payload, **kwargs)
+
     def register(self, name="Alice", email="alice@example.com", password="secret123"):
-        return self.client.post(
+        return self.post(
             "/register",
             data={"name": name, "email": email, "password": password},
             follow_redirects=True,
         )
 
     def login(self, email="alice@example.com", password="secret123"):
-        return self.client.post(
+        return self.post(
             "/login",
             data={"email": email, "password": password},
             follow_redirects=True,
         )
 
     def report(self, title, description, category, location, status, image_url=""):
-        return self.client.post(
+        return self.post(
             "/report",
             data={
                 "title": title,
@@ -53,6 +63,27 @@ class ClassFindTestCase(unittest.TestCase):
             },
             follow_redirects=True,
         )
+
+    def test_csrf_protection_and_security_headers(self):
+        self.assertEqual(self.client.get("/").status_code, 200)
+        response = self.client.post("/logout", follow_redirects=True)
+        self.assertEqual(response.status_code, 400)
+        with self.client.session_transaction() as session:
+            token = session.get("_csrf_token")
+        self.assertIsNotNone(token)
+        response = self.client.post(
+            "/logout",
+            data={"csrf_token": "invalid"},
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["database"], "ok")
+        self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(response.headers["X-Frame-Options"], "DENY")
+        self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
 
     def test_public_home_and_auth_pages(self):
         self.assertEqual(self.client.get("/").status_code, 200)
@@ -80,7 +111,7 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Black wallet", response.data)
 
-        self.client.post("/logout", follow_redirects=True)
+        self.post("/logout", follow_redirects=True)
 
         self.register("Bob", "bob@example.com", "secret123")
         self.report(
@@ -106,7 +137,7 @@ class ClassFindTestCase(unittest.TestCase):
             self.assertIsNotNone(found)
 
         self.login("bob@example.com")
-        response = self.client.post(f"/item/{lost.id}/resolve", follow_redirects=True)
+        response = self.post(f"/item/{lost.id}/resolve", follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"only manage your own reports", response.data)
 
@@ -116,6 +147,23 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         with app.app_context():
             self.assertEqual(db.session.get(Item, lost.id).status, "Resolved")
+
+    def test_bad_image_url_is_rejected(self):
+        self.register()
+        response = self.post(
+            "/report",
+            data={
+                "title": "Unsafe image",
+                "description": "Testing URL validation",
+                "category": "Other",
+                "location": "Lab 1",
+                "status": "Lost",
+                "image_url": "javascript:alert(1)",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Image URL must start with http:// or https://.", response.data)
 
     def test_edit_and_image_upload(self):
         self.register()
@@ -133,7 +181,7 @@ class ClassFindTestCase(unittest.TestCase):
         response = self.client.get(f"/item/{item_id}/edit")
         self.assertEqual(response.status_code, 200)
 
-        response = self.client.post(
+        response = self.post(
             f"/item/{item_id}/edit",
             data={
                 "title": "Blue steel bottle",
@@ -173,7 +221,7 @@ class ClassFindTestCase(unittest.TestCase):
         self.client.post("/logout", follow_redirects=True)
         self.register("Owner", "owner@example.com")
 
-        response = self.client.post(
+        response = self.post(
             f"/item/{found_id}/claim",
             data={"message": "I lost these after studying in the library."},
             follow_redirects=True,
@@ -189,7 +237,7 @@ class ClassFindTestCase(unittest.TestCase):
         self.client.post("/logout", follow_redirects=True)
         self.login("finder@example.com")
 
-        response = self.client.post(
+        response = self.post(
             f"/claims/{claim_id}/accept",
             follow_redirects=True,
         )
@@ -256,7 +304,7 @@ class ClassFindTestCase(unittest.TestCase):
             self.assertIsNotNone(claim)
             claim_id = claim.id
 
-        response = self.client.post(
+        response = self.post(
             f"/claims/{claim_id}/withdraw",
             follow_redirects=True,
         )
