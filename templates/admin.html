@@ -58,7 +58,7 @@
         {% if item.status != "Resolved" %}
           <form method="post" action="{{ url_for('resolve_item', item_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="inline-action" type="submit">Resolve</button></form>
         {% endif %}
-        <form method="post" action="{{ url_for('delete_item', item_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}" onsubmit="return confirm('Delete this report?');"><button class="inline-action danger" type="submit">Delete</button></form>
+        <form method="post" action="{{ url_for('delete_item', item_id=item.id) }}" onsubmit="return confirm('Delete this report?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="inline-action danger" type="submit">Delete</button></form>
       </span>
     </div>
     {% endfor %}
