@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Potential Matches — ClassFind{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div><p class="eyebrow">SMART MATCHING</p><h1>Potential item matches.</h1><p>ClassFind compares active Lost and Found reports using category, location and shared descriptive keywords.</p></div>
+</section>
+{% if pairs %}
+<section class="match-list">
+{% for lost, found, score, reasons in pairs %}
+<article class="match-card">
+  <div class="match-side">
+    <span class="status-pill status-lost">Lost</span>
+    <p class="item-category">{{ lost.category }}</p>
+    <h2>{{ lost.title }}</h2>
+    <p>{{ lost.description }}</p>
+    <span class="match-meta">⌖ {{ lost.location }}</span>
+    <a class="card-link" href="{{ url_for('item_detail', item_id=lost.id) }}">Open lost report →</a>
+  </div>
+  <div class="match-score"><strong>{{ score }}%</strong><span>match</span><small>{{ reasons|join(" · ") }}</small></div>
+  <div class="match-side">
+    <span class="status-pill status-found">Found</span>
+    <p class="item-category">{{ found.category }}</p>
+    <h2>{{ found.title }}</h2>
+    <p>{{ found.description }}</p>
+    <span class="match-meta">⌖ {{ found.location }}</span>
+    <a class="card-link" href="{{ url_for('item_detail', item_id=found.id) }}">Open found report →</a>
+  </div>
+</article>
+{% endfor %}
+</section>
+{% else %}
+<div class="empty-state"><div class="empty-icon">⌁</div><h3>No strong matches yet</h3><p>As students add reports, ClassFind will compare the active lost and found items.</p><a class="primary-btn compact" href="{{ url_for('report') }}">Add a report</a></div>
+{% endif %}
+{% endblock %}
