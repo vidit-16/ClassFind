@@ -7,7 +7,7 @@
     <h1>Report a lost or found item.</h1>
     <p>Your account details are attached automatically, so you can manage this report later from My Reports.</p>
   </div>
-  <form class="report-form" method="post">
+  <form class="report-form" method="post" enctype="multipart/form-data">
     <div class="form-section">
       <p class="section-kicker">ITEM DETAILS</p>
       <div class="field-grid">
@@ -19,7 +19,8 @@
         <label>Location *<input name="location" required maxlength="120" placeholder="e.g. BIT Library, 2nd floor"></label>
         <label>Report type *<select name="status" required><option value="">Choose one</option><option value="Lost">I lost this item</option><option value="Found">I found this item</option></select></label>
       </div>
-      <label>Image URL <span class="optional">(optional)</span><input type="url" name="image_url" maxlength="500" placeholder="https://..."></label>
+      <label>Upload image <span class="optional">(optional, max 5 MB)</span><input type="file" name="image_file" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp"></label>
+<label>Or use an image URL <span class="optional">(optional)</span><input type="url" name="image_url" maxlength="500" placeholder="https://..."></label>
     </div>
     <div class="form-section">
       <p class="section-kicker">REPORTER</p>
