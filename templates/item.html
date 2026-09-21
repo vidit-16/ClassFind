@@ -14,15 +14,32 @@
       <div><span>Reported on</span><strong>{{ item.created_at.strftime("%d %B %Y") }}</strong></div>
       <div><span>Contact</span><strong>{{ item.contact }}</strong></div>
     </div>
-    {% if can_manage and item.status != "Resolved" %}
+    {% if can_manage %}
     <div class="detail-actions">
+      <a class="secondary-btn" href="{{ url_for('edit_item', item_id=item.id) }}">Edit report</a>
+      {% if item.status != "Resolved" %}
       <form method="post" action="{{ url_for('resolve_item', item_id=item.id) }}"><button class="primary-btn" type="submit">Mark as resolved</button></form>
+      {% endif %}
       <form method="post" action="{{ url_for('delete_item', item_id=item.id) }}" onsubmit="return confirm('Delete this report?');"><button class="danger-btn" type="submit">Delete report</button></form>
     </div>
+    {% elif item.status == "Found" and current_user %}
+      {% if existing_claim and existing_claim.status == "Pending" %}
+        <div class="resolved-banner">✓ Your claim is pending review by the reporter.</div>
+      {% elif existing_claim and existing_claim.status == "Rejected" %}
+        <div class="resolved-banner">Your previous claim was rejected. You can submit another claim below with more detail.</div>
+      {% elif item.status != "Resolved" %}
+        <form class="claim-form" method="post" action="{{ url_for('submit_claim', item_id=item.id) }}">
+          <p class="section-kicker">CLAIM THIS ITEM</p>
+          <h3>Think this belongs to you?</h3>
+          <p>Give the finder enough detail to verify ownership without sharing sensitive information.</p>
+          <textarea name="message" minlength="10" maxlength="500" required placeholder="Describe an identifying detail only the owner would know..."></textarea>
+          <button class="primary-btn" type="submit">Submit claim →</button>
+        </form>
+      {% endif %}
     {% elif item.status == "Resolved" %}
       <div class="resolved-banner">✓ This report has been marked as resolved.</div>
     {% else %}
-      <div class="form-note detail-note">Only the reporter or an administrator can manage this report.</div>
+      <div class="form-note detail-note">Sign in to submit a claim for a found item.</div>
     {% endif %}
   </div>
 </section>
