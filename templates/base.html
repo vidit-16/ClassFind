@@ -13,7 +13,18 @@
 <body>
 <nav class="navbar">
   <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">C</span><span>ClassFind</span></a>
-  <div class="nav-links"><a href="{{ url_for('index') }}">Browse</a><a class="nav-report" href="{{ url_for('report') }}">+ Report Item</a></div>
+  <div class="nav-links">
+    <a href="{{ url_for('index') }}">Browse</a>
+    <a href="{{ url_for('matches') }}">Matches</a>
+    {% if current_user %}
+      <a href="{{ url_for('profile') }}">My Reports</a>
+      {% if current_user.is_admin %}<a href="{{ url_for('admin_dashboard') }}">Admin</a>{% endif %}
+      <form method="post" action="{{ url_for('logout') }}" class="logout-form"><button class="nav-logout" type="submit">Sign out</button></form>
+    {% else %}
+      <a href="{{ url_for('login') }}">Sign in</a>
+      <a class="nav-report" href="{{ url_for('register') }}">Create account</a>
+    {% endif %}
+  </div>
 </nav>
 <main class="page-shell">
   {% with messages = get_flashed_messages(with_categories=true) %}
