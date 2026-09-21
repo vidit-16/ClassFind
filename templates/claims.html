@@ -4,13 +4,11 @@
 <section class="page-heading">
   <div><div class="hero-topline"><p class="eyebrow">CLAIMS & OWNERSHIP</p><span class="live-chip"><span class="live-dot"></span>Action center</span></div><h1>Resolve ownership with confidence.</h1><p>Review incoming claims for your found items and keep track of the claims you have submitted.</p></div>
 </section>
-
 <section class="claim-overview">
   <div class="claim-overview-card"><span>Incoming</span><strong>{{ incoming|selectattr("status","equalto","Pending")|list|length }}</strong><small>Need your review</small></div>
   <div class="claim-overview-card"><span>My pending claims</span><strong>{{ outgoing|selectattr("status","equalto","Pending")|list|length }}</strong><small>Waiting for a response</small></div>
   <div class="claim-overview-card"><span>Decided</span><strong>{{ incoming|selectattr("status","ne","Pending")|list|length + outgoing|selectattr("status","ne","Pending")|list|length }}</strong><small>Completed decisions</small></div>
 </section>
-
 <section class="claim-section">
   <div class="results-header"><div><p class="section-kicker">INCOMING</p><h2>{{ incoming|length }} claim{% if incoming|length != 1 %}s{% endif %}</h2></div><span class="queue-note">Claims for items you reported as Found</span></div>
   {% if incoming %}
@@ -40,7 +38,6 @@
     <div class="empty-state compact-empty"><h3>No incoming claims</h3><p>Claims submitted for your found items will appear here.</p></div>
   {% endif %}
 </section>
-
 <section class="claim-section">
   <div class="results-header"><div><p class="section-kicker">MY CLAIMS</p><h2>{{ outgoing|length }} submitted</h2></div><span class="queue-note">Claims you've made on Found reports</span></div>
   {% if outgoing %}
@@ -57,7 +54,7 @@
         <div class="claim-actions">
           <span class="claim-status {{ claim.status|lower }}">{{ claim.status }}</span>
           {% if claim.status == "Pending" %}
-            <form method="post" action="{{ url_for('withdraw_claim', claim_id=claim.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}" onsubmit="return confirm('Withdraw this pending claim?');"><button class="inline-action danger" type="submit">Withdraw</button></form>
+            <form method="post" action="{{ url_for('withdraw_claim', claim_id=claim.id) }}" onsubmit="return confirm('Withdraw this pending claim?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="inline-action danger" type="submit">Withdraw</button></form>
           {% endif %}
           <a class="card-link" href="{{ url_for('item_detail', item_id=claim.item.id) }}">Open report →</a>
         </div>
