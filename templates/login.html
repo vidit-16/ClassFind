@@ -8,6 +8,7 @@
     <p>Sign in to publish reports, manage your items, and see potential matches.</p>
   </div>
   <form class="auth-card" method="post">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Email<input type="email" name="email" required autocomplete="email" placeholder="you@example.com"></label>
     <label>Password<input type="password" name="password" required autocomplete="current-password" placeholder="••••••••"></label>
     <button class="primary-btn full" type="submit">Sign in →</button>
