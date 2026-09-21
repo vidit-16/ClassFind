@@ -54,9 +54,11 @@ app.jinja_env.globals["csrf_token"] = csrf_token
 
 @app.before_request
 def protect_csrf():
+    expected = session.get(CSRF_SESSION_KEY)
+    if not expected:
+        expected = csrf_token()
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
         return
-    expected = session.get(CSRF_SESSION_KEY)
     supplied = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token")
     if not expected or not supplied or not compare_digest(expected, supplied):
         abort(400, description="Invalid or missing CSRF token.")
