@@ -2,7 +2,7 @@
 
 **Online Lost and Found System — Cloud Computing Lab (Batch 9)**
 
-ClassFind is a lightweight cloud-ready web application where students can report lost or found belongings and search community reports.
+ClassFind is a cloud-ready campus lost-and-found application where students can report missing belongings, post found items, search community reports, and surface potential lost/found matches.
 
 ## Project requirement
 
@@ -10,14 +10,18 @@ ClassFind is a lightweight cloud-ready web application where students can report
 
 ## Features
 
-- Report a lost item
-- Report a found item
+- Student registration, login and logout
+- Report lost or found items
+- Automatic reporter identity from the signed-in account
 - Search reports by keyword
 - Filter by category and status
-- View complete report details and contact information
-- Mark a report as resolved
-- Delete a report
+- Individual report pages
+- Manage your own reports
+- Mark an item as resolved
+- Delete your own reports
 - Dashboard counters for total, lost, found and resolved reports
+- Deterministic potential-match detection between active Lost and Found reports
+- Admin dashboard for report and user oversight
 - Optional item image URL
 - Responsive interface for desktop and mobile
 - SQLite for local development and PostgreSQL for cloud deployment
@@ -27,6 +31,7 @@ ClassFind is a lightweight cloud-ready web application where students can report
 - **Frontend:** HTML, CSS, vanilla JavaScript
 - **Backend:** Python + Flask
 - **Database:** SQLAlchemy ORM
+- **Authentication:** Flask sessions + Werkzeug password hashing
 - **Local database:** SQLite
 - **Cloud database:** PostgreSQL
 - **Deployment:** Render + Gunicorn
@@ -41,23 +46,52 @@ cd ClassFind
 python -m venv .venv
 ~~~
 
-Activate the environment, then:
+On Windows PowerShell, when execution-policy settings prevent activating the environment, run the venv Python directly:
+
+~~~powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe app.py
+~~~
+
+Otherwise, after activating the environment:
 
 ~~~bash
 pip install -r requirements.txt
 python app.py
 ~~~
 
-Open http://127.0.0.1:5000. The local SQLite database is created automatically.
+Open http://127.0.0.1:5000.
+
+The SQLite database is created automatically. Updating from the original version will also create the new User table without requiring a separate database server.
+
+## First-use demo
+
+1. Create the first student account.
+2. The first account is treated as the initial admin account for an easy lab demonstration.
+3. Create one Lost report and one Found report.
+4. Search and filter reports.
+5. Open the Matches page to see potential Lost/Found pairs.
+6. Open My Reports to manage your own reports.
+7. Open Admin to view users and recent reports.
+8. Mark a report as Resolved.
+
+For a deployed environment, set the ADMIN_EMAIL environment variable to the account that should have admin access instead of relying on the first-account behaviour.
 
 ## Cloud deployment with Render
 
-1. Push or connect this repository to Render.
-2. Create a new Blueprint and select the repository.
-3. Render reads render.yaml and creates the Python web service plus PostgreSQL database.
-4. Deploy and open the generated public URL.
+Connect the repository to Render and create a new Blueprint. Render reads the render.yaml deployment configuration and creates:
 
-The application reads the PostgreSQL connection string from the DATABASE_URL environment variable.
+- a Python web service
+- a PostgreSQL database
+
+The service reads the PostgreSQL connection string from DATABASE_URL.
+
+Recommended environment variables:
+
+~~~text
+SECRET_KEY=<long-random-secret>
+ADMIN_EMAIL=<admin-account-email>
+~~~
 
 Manual settings:
 
@@ -66,24 +100,25 @@ Build command: pip install -r requirements.txt
 Start command: gunicorn app:app
 ~~~
 
-## Suggested demo flow
+## Matching logic
 
-1. Open the dashboard and show the report counters.
-2. Create a Lost report for a sample item.
-3. Create a Found report for another sample item.
-4. Search by item name or location.
-5. Filter the results by Lost or Found.
-6. Open a report and show the stored details.
-7. Mark the report as Resolved.
-8. Show the updated dashboard counter.
+ClassFind's matching feature is deliberately explainable for a lab project. It compares each active Lost report with active Found reports using:
+
+- description/title keyword overlap
+- matching categories
+- overlapping location terms
+
+The result is shown as a percentage with the matching reasons, rather than relying on a hidden model.
 
 ## Cloud computing concepts demonstrated
 
-- **Cloud-hosted application:** the Flask service can run on a public cloud platform.
-- **Cloud database:** PostgreSQL can persist application data separately from the web server.
-- **Environment configuration:** database connection details are supplied through environment variables.
-- **Scalability path:** the stateless Flask application can be scaled horizontally while using the managed database as the shared data layer.
-- **CRUD operations:** create, read, update status, and delete lost/found reports.
+- **Cloud-hosted application:** Flask can run on a public cloud platform.
+- **Cloud database:** PostgreSQL persists application data separately from the web process.
+- **Environment configuration:** secrets and database connection details are supplied through environment variables.
+- **Stateless web layer:** user session state is kept in signed cookies while application records remain in the database.
+- **CRUD operations:** create, read, update status, and delete reports.
+- **Role-based access:** student and admin views expose different management actions.
+- **Scalable architecture:** multiple web processes can share the managed PostgreSQL database.
 
 ## Project structure
 
@@ -97,9 +132,13 @@ ClassFind/
 ├── .gitignore
 ├── templates/
 │   ├── base.html
-│   ├── index.html
+│   ├── login.html
+│   ├── register.html
+│   ├── profile.html
 │   ├── report.html
 │   ├── item.html
+│   ├── matches.html
+│   ├── admin.html
 │   └── 404.html
 └── static/
     ├── style.css
@@ -108,9 +147,8 @@ ClassFind/
 
 ## Future enhancements
 
-- Student login and role-based access
 - Real image uploads using cloud object storage
 - Email notifications for potential matches
-- Automatic similarity matching between lost and found descriptions
-- Admin moderation dashboard
-- Campus-specific locations and departments
+- Campus-specific departments and locations
+- Moderation actions and audit logs
+- Stronger fuzzy matching or ML-based similarity
