@@ -8,6 +8,7 @@
     <p>Your account details are attached automatically, so you can manage this report later from My Reports.</p>
   </div>
   <form class="report-form" method="post" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="form-section">
       <p class="section-kicker">ITEM DETAILS</p>
       <div class="field-grid">
