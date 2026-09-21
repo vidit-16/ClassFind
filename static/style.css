@@ -89,3 +89,9 @@ body::after{content:"";position:fixed;z-index:-1;width:420px;height:420px;right:
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;scroll-behavior:auto !important;transition-duration:.001ms !important}
 }
+
+/* Header identity refinement */
+.brand-wordmark{font:700 20px "Space Grotesk",sans-serif;letter-spacing:-.035em}
+.institution-name{font-family:"Roboto Slab",Georgia,serif;font-weight:700;letter-spacing:.015em}
+.bit-logo{width:30px;height:35px;object-fit:contain}
+@media(max-width:560px){.brand-wordmark{font-size:19px}.bit-logo{width:28px;height:33px}}
