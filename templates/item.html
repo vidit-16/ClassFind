@@ -3,10 +3,10 @@
 {% block content %}
 <a class="back-link" href="{{ url_for('index') }}">← Back to reports</a>
 <section class="detail-card">
-  <div class="detail-visual">{% if item.image_src %}<img src="{{ item.image_src }}" alt="{{ item.title }}">{% else %}<span>{{ item.category[:1].upper() }}</span>{% endif %}</div>
+  <div class="detail-visual">{% if item.image_src %}<img src="{{ item.image_src }}" alt="{{ item.title }}" loading="lazy">{% else %}<span>{{ item.category[:1].upper() }}</span>{% endif %}</div>
   <div class="detail-content">
-    <span class="status-pill {{ item.status_class }}">{{ item.status }}</span>
-    <p class="item-category">{{ item.category }}</p><h1>{{ item.title }}</h1>
+    <div class="detail-topline"><span class="status-pill {{ item.status_class }}">{{ item.status }}</span><span class="item-category">{{ item.category }}</span></div>
+    <h1>{{ item.title }}</h1>
     <p class="detail-description">{{ item.description }}</p>
     <div class="detail-facts">
       <div><span>Last known location</span><strong>⌖ {{ item.location }}</strong></div>
@@ -20,8 +20,7 @@
       {% if item.status != "Resolved" %}
       <form method="post" action="{{ url_for('resolve_item', item_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="primary-btn" type="submit">Mark as resolved</button></form>
       {% endif %}
-      <form method="post" action="{{ url_for('delete_item', item_id=item.id) }}" onsubmit=
-<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">"return confirm('Delete this report?');"><button class="danger-btn" type="submit">Delete report</button></form>
+      <form method="post" action="{{ url_for('delete_item', item_id=item.id) }}" onsubmit="return confirm('Delete this report?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger-btn" type="submit">Delete report</button></form>
     </div>
     {% elif item.status == "Found" and current_user %}
       {% if existing_claim and existing_claim.status == "Pending" %}
@@ -30,10 +29,10 @@
         <div class="resolved-banner">Your previous claim was rejected. You can submit another claim below with more detail.</div>
       {% elif item.status != "Resolved" %}
         <form class="claim-form" method="post" action="{{ url_for('submit_claim', item_id=item.id) }}">
-<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <p class="section-kicker">CLAIM THIS ITEM</p>
           <h3>Think this belongs to you?</h3>
-          <p>Give the finder enough detail to verify ownership without sharing sensitive information.</p>
+          <p>Share an identifying detail only the owner would know. Keep sensitive information private.</p>
           <textarea name="message" minlength="10" maxlength="500" required placeholder="Describe an identifying detail only the owner would know..."></textarea>
           <button class="primary-btn" type="submit">Submit claim →</button>
         </form>
