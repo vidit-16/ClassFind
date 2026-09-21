@@ -86,15 +86,15 @@ ClassFind is designed to run on AWS using:
 - **RDS for PostgreSQL** for users, reports and claims
 - **S3** for persistent item images
 
-Elastic Beanstalk supports Python web applications and can run Flask behind WSGI/Gunicorn. The repository includes a Procfile with the Gunicorn start command. citeturn125628search1turn125628search5
+Elastic Beanstalk supports Python web applications and can run Flask behind WSGI/Gunicorn. The repository includes a Procfile with the Gunicorn start command.
 
 ### 1. Create an S3 bucket
 
-Create a private S3 bucket for ClassFind item images. Keep Block Public Access enabled. The application generates time-limited presigned GET URLs for displaying private images. AWS documents presigned URLs as the way to grant temporary access to private S3 objects. citeturn125628search6turn125628search8
+Create a private S3 bucket for ClassFind item images. Keep Block Public Access enabled. The application generates time-limited presigned GET URLs for displaying private images. AWS documents presigned URLs as the way to grant temporary access to private S3 objects.
 
 ### 2. Configure AWS permissions
 
-Give the Elastic Beanstalk EC2 instance role permission to work with the ClassFind bucket. The application uses the AWS SDK for Python (Boto3) and its S3 upload APIs. citeturn125628search0turn125628search13
+Give the Elastic Beanstalk EC2 instance role permission to work with the ClassFind bucket. The application uses the AWS SDK for Python (Boto3) and its S3 upload APIs.
 
 Minimum object permissions:
 
@@ -108,7 +108,7 @@ Scope them to the ClassFind bucket and the items/ prefix.
 
 ### 3. Create PostgreSQL on RDS
 
-Create a PostgreSQL database in Amazon RDS and make it reachable from the Elastic Beanstalk environment. AWS documents RDS integration with Elastic Beanstalk for PostgreSQL applications. citeturn125628search9turn125628search15
+Create a PostgreSQL database in Amazon RDS and make it reachable from the Elastic Beanstalk environment. AWS documents RDS integration with Elastic Beanstalk for PostgreSQL applications.
 
 Set the application environment variable:
 
@@ -118,7 +118,7 @@ DATABASE_URL=postgresql://<user>:<password>@<host>:5432/<database>
 
 ### 4. Create the Elastic Beanstalk environment
 
-Use the AWS Elastic Beanstalk Python platform and deploy this repository/source bundle. Elastic Beanstalk can deploy Flask applications and uses the Procfile in the source bundle to configure the WSGI server. citeturn125628search7turn125628search5
+Use the AWS Elastic Beanstalk Python platform and deploy this repository/source bundle. Elastic Beanstalk can deploy Flask applications and uses the Procfile in the source bundle to configure the WSGI server.
 
 Set these environment variables in the environment:
 
