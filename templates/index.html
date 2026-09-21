@@ -5,10 +5,13 @@
   <div>
     <p class="eyebrow">CLOUD-BASED LOST & FOUND</p>
     <h1>Find what matters,<br><span>right on campus.</span></h1>
-    <p class="hero-copy">A simple place for students to report missing belongings, post found items, and reconnect them with their owners.</p>
-    <a class="primary-btn" href="{{ url_for('report') }}">Report an item <span>→</span></a>
+    <p class="hero-copy">A shared campus space for reporting lost belongings, posting found items, and reconnecting them with their owners.</p>
+    <div class="hero-actions">
+      {% if current_user %}<a class="primary-btn" href="{{ url_for('report') }}">Report an item <span>→</span></a>{% else %}<a class="primary-btn" href="{{ url_for('register') }}">Join ClassFind <span>→</span></a>{% endif %}
+      <a class="secondary-btn" href="{{ url_for('matches') }}">See potential matches</a>
+    </div>
   </div>
-  <div class="hero-card"><div class="hero-icon">⌕</div><strong>Search the campus</strong><span>Filter by item, category, location or status.</span></div>
+  <div class="hero-card"><div class="hero-icon">⌕</div><strong>Search the campus</strong><span>Find reports by item, category, location or status.</span></div>
 </section>
 
 <section class="stats-grid">
@@ -48,6 +51,6 @@
 {% endfor %}
 </section>
 {% else %}
-<div class="empty-state"><div class="empty-icon">⌕</div><h3>No reports found</h3><p>Try a different search, or be the first person to report this item.</p><a class="primary-btn compact" href="{{ url_for('report') }}">Create report</a></div>
+<div class="empty-state"><div class="empty-icon">⌕</div><h3>No reports found</h3><p>Try a different search, or be the first person to report this item.</p>{% if current_user %}<a class="primary-btn compact" href="{{ url_for('report') }}">Create report</a>{% else %}<a class="primary-btn compact" href="{{ url_for('register') }}">Create account</a>{% endif %}</div>
 {% endif %}
 {% endblock %}
