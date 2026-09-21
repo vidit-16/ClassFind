@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Something went wrong — ClassFind{% endblock %}
+{% block content %}
+<section class="empty-state large">
+  <div class="empty-icon">!</div>
+  <p class="section-kicker">TEMPORARY ERROR</p>
+  <h3>ClassFind hit a small bump.</h3>
+  <p>The page couldn't be completed right now. Your existing reports are safe; try again in a moment.</p>
+  <a class="primary-btn compact" href="{{ url_for('index') }}">Back to ClassFind</a>
+</section>
+{% endblock %}
