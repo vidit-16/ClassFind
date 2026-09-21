@@ -34,7 +34,8 @@ ClassFind is a cloud-ready campus lost-and-found application where students can 
 - **Authentication:** Flask sessions + Werkzeug password hashing
 - **Local database:** SQLite
 - **Cloud database:** PostgreSQL
-- **Deployment:** Render + Gunicorn
+- **Deployment:** AWS Elastic Beanstalk + Gunicorn
+- **Image storage:** Amazon S3
 
 ## Run locally
 
@@ -77,27 +78,93 @@ The SQLite database is created automatically. Updating from the original version
 
 For a deployed environment, set the ADMIN_EMAIL environment variable to the account that should have admin access instead of relying on the first-account behaviour.
 
-## Cloud deployment with Render
+## AWS deployment
 
-Connect the repository to Render and create a new Blueprint. Render reads the render.yaml deployment configuration and creates:
+ClassFind is designed to run on AWS using:
 
-- a Python web service
-- a PostgreSQL database
+- **Elastic Beanstalk** for the Flask web application
+- **RDS for PostgreSQL** for users, reports and claims
+- **S3** for persistent item images
 
-The service reads the PostgreSQL connection string from DATABASE_URL.
+Elastic Beanstalk supports Python web applications and can run Flask behind WSGI/Gunicorn. The repository includes a Procfile with the Gunicorn start command. citeturn125628search1turn125628search5
 
-Recommended environment variables:
+### 1. Create an S3 bucket
+
+Create a private S3 bucket for ClassFind item images. Keep Block Public Access enabled. The application generates time-limited presigned GET URLs for displaying private images. AWS documents presigned URLs as the way to grant temporary access to private S3 objects. citeturn125628search6turn125628search8
+
+### 2. Configure AWS permissions
+
+Give the Elastic Beanstalk EC2 instance role permission to work with the ClassFind bucket. The application uses the AWS SDK for Python (Boto3) and its S3 upload APIs. citeturn125628search0turn125628search13
+
+Minimum object permissions:
+
+~~~text
+s3:GetObject
+s3:PutObject
+s3:DeleteObject
+~~~
+
+Scope them to the ClassFind bucket and the items/ prefix.
+
+### 3. Create PostgreSQL on RDS
+
+Create a PostgreSQL database in Amazon RDS and make it reachable from the Elastic Beanstalk environment. AWS documents RDS integration with Elastic Beanstalk for PostgreSQL applications. citeturn125628search9turn125628search15
+
+Set the application environment variable:
+
+~~~text
+DATABASE_URL=postgresql://<user>:<password>@<host>:5432/<database>
+~~~
+
+### 4. Create the Elastic Beanstalk environment
+
+Use the AWS Elastic Beanstalk Python platform and deploy this repository/source bundle. Elastic Beanstalk can deploy Flask applications and uses the Procfile in the source bundle to configure the WSGI server. citeturn125628search7turn125628search5
+
+Set these environment variables in the environment:
 
 ~~~text
 SECRET_KEY=<long-random-secret>
 ADMIN_EMAIL=<admin-account-email>
+S3_BUCKET=<your-s3-bucket-name>
+AWS_REGION=ap-south-1
+DATABASE_URL=<your-rds-connection-string>
 ~~~
 
-Manual settings:
+The application does not require AWS access keys in source code. On Elastic Beanstalk, use the environment's IAM role for S3 permissions.
+
+### Local vs AWS storage
+
+Without S3 configuration, local development keeps uploaded files under:
 
 ~~~text
-Build command: pip install -r requirements.txt
-Start command: gunicorn app:app
+static/uploads/
+~~~
+
+When S3_BUCKET is configured, uploads go to:
+
+~~~text
+s3://<bucket>/items/<random-file-name>
+~~~
+
+The database stores the S3 object reference, and the application generates a temporary URL when the image needs to be displayed.
+
+### AWS architecture
+
+~~~text
+Browser
+   |
+   v
+AWS Elastic Beanstalk
+   |
+   +---- Flask + Python
+   |
+   +---- Amazon RDS PostgreSQL
+   |       - Users
+   |       - Reports
+   |       - Claims
+   |
+   +---- Amazon S3
+           - Item images
 ~~~
 
 ## Matching logic
