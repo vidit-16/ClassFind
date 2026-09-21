@@ -18,9 +18,10 @@
     <div class="detail-actions">
       <a class="secondary-btn" href="{{ url_for('edit_item', item_id=item.id) }}">Edit report</a>
       {% if item.status != "Resolved" %}
-      <form method="post" action="{{ url_for('resolve_item', item_id=item.id) }}"><button class="primary-btn" type="submit">Mark as resolved</button></form>
+      <form method="post" action="{{ url_for('resolve_item', item_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="primary-btn" type="submit">Mark as resolved</button></form>
       {% endif %}
-      <form method="post" action="{{ url_for('delete_item', item_id=item.id) }}" onsubmit="return confirm('Delete this report?');"><button class="danger-btn" type="submit">Delete report</button></form>
+      <form method="post" action="{{ url_for('delete_item', item_id=item.id) }}" onsubmit=
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">"return confirm('Delete this report?');"><button class="danger-btn" type="submit">Delete report</button></form>
     </div>
     {% elif item.status == "Found" and current_user %}
       {% if existing_claim and existing_claim.status == "Pending" %}
@@ -29,6 +30,7 @@
         <div class="resolved-banner">Your previous claim was rejected. You can submit another claim below with more detail.</div>
       {% elif item.status != "Resolved" %}
         <form class="claim-form" method="post" action="{{ url_for('submit_claim', item_id=item.id) }}">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <p class="section-kicker">CLAIM THIS ITEM</p>
           <h3>Think this belongs to you?</h3>
           <p>Give the finder enough detail to verify ownership without sharing sensitive information.</p>
