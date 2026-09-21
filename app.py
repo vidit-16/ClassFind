@@ -6,6 +6,9 @@ from functools import wraps
 from pathlib import Path
 from uuid import uuid4
 
+import boto3
+from botocore.exceptions import ClientError
+
 from flask import Flask, flash, redirect, render_template, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import or_
@@ -21,6 +24,8 @@ app.config["UPLOAD_FOLDER"] = os.getenv(
     "UPLOAD_FOLDER", str(Path(app.static_folder) / "uploads")
 )
 app.config["ALLOWED_EXTENSIONS"] = {"png", "jpg", "jpeg", "gif", "webp"}
+app.config["S3_BUCKET"] = os.getenv("S3_BUCKET", "").strip()
+app.config["AWS_REGION"] = os.getenv("AWS_REGION", "ap-south-1")
 
 database_url = os.getenv("DATABASE_URL", "sqlite:///classfind.db")
 if database_url.startswith("postgres://"):
@@ -52,6 +57,20 @@ class Item(db.Model):
     contact = db.Column(db.String(160), nullable=False)
     image_url = db.Column(db.String(500))
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    claims = db.relationship("Claim", back_populates="item", cascade="all, delete-orphan", passive_deletes=True)
+
+    @property
+    def image_src(self):
+        if not self.image_url:
+            return None
+        if self.image_url.startswith("s3://"):
+            bucket, key = self.image_url[5:].split("/", 1)
+            return s3_client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": bucket, "Key": key},
+                ExpiresIn=3600,
+            )
+        return self.image_url
 
     @property
     def status_class(self):
@@ -76,7 +95,11 @@ class Claim(db.Model):
 
 with app.app_context():
     db.create_all()
-Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
+
+if not app.config["S3_BUCKET"]:
+    Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
+
+s3_client = boto3.client("s3", region_name=app.config["AWS_REGION"]) if app.config["S3_BUCKET"] else None
 
 
 def get_current_user():
@@ -155,23 +178,48 @@ def save_uploaded_image(file_storage):
     safe_name = secure_filename(file_storage.filename)
     extension = safe_name.rsplit(".", 1)[1].lower()
     filename = f"{uuid4().hex}.{extension}"
+
+    if s3_client:
+        key = f"items/{filename}"
+        try:
+            s3_client.upload_fileobj(
+                file_storage.stream,
+                app.config["S3_BUCKET"],
+                key,
+                ExtraArgs={
+                    "ContentType": file_storage.mimetype or "application/octet-stream"
+                },
+            )
+        except ClientError as exc:
+            app.logger.exception("S3 upload failed")
+            raise ValueError("Image upload failed. Please try again.") from exc
+        return f"s3://{app.config['S3_BUCKET']}/{key}"
+
     destination = Path(app.config["UPLOAD_FOLDER"]) / filename
     file_storage.save(destination)
     return url_for("static", filename=f"uploads/{filename}")
 
 
-def delete_local_image(image_url):
+def delete_image(image_url):
     if not image_url:
         return
-    prefix = "/static/uploads/"
-    if not image_url.startswith(prefix):
+
+    if image_url.startswith("s3://") and s3_client:
+        bucket, key = image_url[5:].split("/", 1)
+        try:
+            s3_client.delete_object(Bucket=bucket, Key=key)
+        except ClientError:
+            app.logger.exception("S3 delete failed")
         return
-    filename = image_url[len(prefix):]
-    path = Path(app.config["UPLOAD_FOLDER"]) / filename
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        pass
+
+    prefix = "/static/uploads/"
+    if image_url.startswith(prefix):
+        filename = image_url[len(prefix):]
+        path = Path(app.config["UPLOAD_FOLDER"]) / filename
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 @app.get("/health")
@@ -417,7 +465,7 @@ def edit_item(item_id):
         item.status = status
 
         if request.form.get("remove_image") == "1":
-            delete_local_image(item.image_url)
+            delete_image(item.image_url)
             item.image_url = None
 
         if request.files.get("image_file"):
@@ -426,11 +474,11 @@ def edit_item(item_id):
             except ValueError as exc:
                 flash(str(exc), "error")
                 return render_template("edit.html", item=item)
-            delete_local_image(item.image_url)
+            delete_image(item.image_url)
             item.image_url = new_url
         elif image_url:
             if item.image_url and item.image_url != image_url:
-                delete_local_image(item.image_url)
+                delete_image(item.image_url)
             item.image_url = image_url
 
         db.session.commit()
@@ -462,7 +510,7 @@ def delete_item(item_id):
         flash("You can only manage your own reports.", "error")
         return redirect(url_for("item_detail", item_id=item.id))
 
-    delete_local_image(item.image_url)
+    delete_image(item.image_url)
     db.session.delete(item)
     db.session.commit()
     flash("Report deleted.", "success")
