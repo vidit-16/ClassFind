@@ -2,14 +2,26 @@
 {% block title %}My Reports — ClassFind{% endblock %}
 {% block content %}
 <section class="page-heading">
-  <div><p class="eyebrow">MY CLASSFIND</p><h1>Hi, {{ user.name }}.</h1><p>Reports published from your account.</p></div>
+  <div><p class="eyebrow">MY CLASSFIND</p><h1>Hi, {{ user.name }}.</h1><p>Manage your reports and keep track of ownership claims.</p></div>
   <a class="primary-btn" href="{{ url_for('report') }}">+ Report item</a>
 </section>
+
+<section class="mini-stats">
+  <div><span>My reports</span><strong>{{ items|length }}</strong></div>
+  <div><span>Incoming claims</span><strong>{{ incoming_claims|selectattr("status","equalto","Pending")|list|length }}</strong></div>
+  <div><span>My claims</span><strong>{{ outgoing_claims|length }}</strong></div>
+  <div><span>Open claims</span><strong>{{ outgoing_claims|selectattr("status","equalto","Pending")|list|length }}</strong></div>
+</section>
+
+<div class="profile-links">
+  <a class="secondary-btn" href="{{ url_for('claims') }}">View claims {% if incoming_claim_count or outgoing_claim_count %}<span class="count-badge">{{ incoming_claim_count + outgoing_claim_count }}</span>{% endif %}</a>
+</div>
+
 {% if items %}
 <section class="item-grid">{% for item in items %}
 <article class="item-card">
   <div class="item-visual">{% if item.image_url %}<img src="{{ item.image_url }}" alt="{{ item.title }}">{% else %}<span>{{ item.category[:1].upper() }}</span>{% endif %}<span class="status-pill {{ item.status_class }}">{{ item.status }}</span></div>
-  <div class="item-body"><p class="item-category">{{ item.category }}</p><h3>{{ item.title }}</h3><p class="item-description">{{ item.description }}</p><div class="item-meta"><span>⌖ {{ item.location }}</span><span>{{ item.created_at.strftime("%d %b %Y") }}</span></div><a class="card-link" href="{{ url_for('item_detail', item_id=item.id) }}">View report →</a></div>
+  <div class="item-body"><p class="item-category">{{ item.category }}</p><h3>{{ item.title }}</h3><p class="item-description">{{ item.description }}</p><div class="item-meta"><span>⌖ {{ item.location }}</span><span>{{ item.created_at.strftime("%d %b %Y") }}</span></div><div class="card-actions"><a class="card-link" href="{{ url_for('item_detail', item_id=item.id) }}">View →</a><a class="card-link" href="{{ url_for('edit_item', item_id=item.id) }}">Edit →</a></div></div>
 </article>
 {% endfor %}</section>
 {% else %}
