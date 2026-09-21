@@ -66,7 +66,7 @@ class ClassFindTestCase(unittest.TestCase):
 
     def test_csrf_protection_and_security_headers(self):
         self.assertEqual(self.client.get("/").status_code, 200)
-        response = self.client.post("/logout", follow_redirects=True)
+        response = self.post("/logout", follow_redirects=True)
         self.assertEqual(response.status_code, 400)
         with self.client.session_transaction() as session:
             token = session.get("_csrf_token")
@@ -292,7 +292,7 @@ class ClassFindTestCase(unittest.TestCase):
 
         self.client.post("/logout", follow_redirects=True)
         self.register("Owner", "owner2@example.com")
-        response = self.client.post(
+        response = self.post(
             f"/item/{found_id}/claim",
             data={"message": "I lost this green bottle near the lab yesterday."},
             follow_redirects=True,
@@ -330,7 +330,7 @@ class ClassFindTestCase(unittest.TestCase):
 
         self.client.post("/logout", follow_redirects=True)
         self.register("Owner", "owner@example.com")
-        self.client.post(
+        self.post(
             f"/item/{found_id}/claim",
             data={"message": "I lost this backpack in the lab yesterday."},
             follow_redirects=True,
@@ -353,7 +353,7 @@ class ClassFindTestCase(unittest.TestCase):
     def test_login_rejects_bad_password(self):
         self.register()
         self.client.post("/logout", follow_redirects=True)
-        response = self.client.post(
+        response = self.post(
             "/login",
             data={"email": "alice@example.com", "password": "wrongpass"},
             follow_redirects=True,
