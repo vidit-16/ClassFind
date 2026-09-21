@@ -37,6 +37,7 @@ if database_url.startswith("postgres://"):
 
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True, "pool_recycle": 1800}
 
 CSRF_SESSION_KEY = "_csrf_token"
 
@@ -848,6 +849,7 @@ def too_large(_error):
 @app.errorhandler(500)
 def server_error(_error):
     db.session.rollback()
+    app.logger.exception("Unhandled application error")
     return render_template("500.html"), 500
 
 
