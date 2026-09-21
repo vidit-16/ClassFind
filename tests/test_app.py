@@ -141,9 +141,9 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"only manage your own reports", response.data)
 
-        self.client.post("/logout", follow_redirects=True)
+        self.post("/logout", follow_redirects=True)
         self.login("alice@example.com")
-        response = self.client.post(f"/item/{lost.id}/resolve", follow_redirects=True)
+        response = self.post(f"/item/{lost.id}/resolve", follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         with app.app_context():
             self.assertEqual(db.session.get(Item, lost.id).status, "Resolved")
@@ -218,7 +218,7 @@ class ClassFindTestCase(unittest.TestCase):
             found = Item.query.filter_by(title="Black AirPods").first()
             found_id = found.id
 
-        self.client.post("/logout", follow_redirects=True)
+        self.post("/logout", follow_redirects=True)
         self.register("Owner", "owner@example.com")
 
         response = self.post(
@@ -234,7 +234,7 @@ class ClassFindTestCase(unittest.TestCase):
             claim_id = claim.id
             self.assertEqual(claim.status, "Pending")
 
-        self.client.post("/logout", follow_redirects=True)
+        self.post("/logout", follow_redirects=True)
         self.login("finder@example.com")
 
         response = self.post(
@@ -271,7 +271,7 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertEqual(filtered.status_code, 200)
         self.assertIn(b"Keys", filtered.data)
 
-        response = self.client.post(f"/item/{item_id}/delete", follow_redirects=True)
+        response = self.post(f"/item/{item_id}/delete", follow_redirects=True)
         self.assertEqual(response.status_code, 200)
 
         with app.app_context():
@@ -290,7 +290,7 @@ class ClassFindTestCase(unittest.TestCase):
             found = Item.query.filter_by(title="Green bottle").first()
             found_id = found.id
 
-        self.client.post("/logout", follow_redirects=True)
+        self.post("/logout", follow_redirects=True)
         self.register("Owner", "owner2@example.com")
         response = self.post(
             f"/item/{found_id}/claim",
@@ -328,7 +328,7 @@ class ClassFindTestCase(unittest.TestCase):
             found = Item.query.filter_by(title="Black bag").first()
             found_id = found.id
 
-        self.client.post("/logout", follow_redirects=True)
+        self.post("/logout", follow_redirects=True)
         self.register("Owner", "owner@example.com")
         self.post(
             f"/item/{found_id}/claim",
@@ -341,9 +341,9 @@ class ClassFindTestCase(unittest.TestCase):
             self.assertIsNotNone(claim)
             claim_id = claim.id
 
-        self.client.post("/logout", follow_redirects=True)
+        self.post("/logout", follow_redirects=True)
         self.login("finder@example.com")
-        response = self.client.post(f"/item/{found_id}/delete", follow_redirects=True)
+        response = self.post(f"/item/{found_id}/delete", follow_redirects=True)
         self.assertEqual(response.status_code, 200)
 
         with app.app_context():
@@ -352,7 +352,7 @@ class ClassFindTestCase(unittest.TestCase):
 
     def test_login_rejects_bad_password(self):
         self.register()
-        self.client.post("/logout", follow_redirects=True)
+        self.post("/logout", follow_redirects=True)
         response = self.post(
             "/login",
             data={"email": "alice@example.com", "password": "wrongpass"},
