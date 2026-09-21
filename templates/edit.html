@@ -30,8 +30,8 @@
     </div>
     <div class="form-section">
       <p class="section-kicker">IMAGE</p>
-      {% if item.image_url %}
-        <div class="current-image"><img src="{{ item.image_url }}" alt="{{ item.title }}"><div><strong>Current image</strong><span>{{ item.image_url }}</span></div></div>
+      {% if item.image_src %}
+        <div class="current-image"><img src="{{ item.image_src }}" alt="{{ item.title }}"><div><strong>Current image</strong><span>{{ item.image_src }}</span></div></div>
         <label class="check-row"><input type="checkbox" name="remove_image" value="1"> Remove current image</label>
       {% endif %}
       <label>Upload a new image <span class="optional">(max 5 MB)</span>
