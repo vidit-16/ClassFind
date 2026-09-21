@@ -64,13 +64,13 @@ class Item(db.Model):
 
 class Claim(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    item_id = db.Column(db.Integer, db.ForeignKey("item.id"), nullable=False, index=True)
+    item_id = db.Column(db.Integer, db.ForeignKey("item.id", ondelete="CASCADE"), nullable=False, index=True)
     claimant_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
     message = db.Column(db.Text, nullable=False)
     status = db.Column(db.String(20), nullable=False, default="Pending")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     decided_at = db.Column(db.DateTime)
-    item = db.relationship("Item")
+    item = db.relationship("Item", back_populates="claims")
     claimant = db.relationship("User")
 
 
@@ -274,7 +274,7 @@ def login():
 
         session["user_id"] = user.id
         next_url = request.args.get("next") or url_for("index")
-        if not next_url.startswith("/"):
+        if not next_url.startswith("/") or next_url.startswith("//"):
             next_url = url_for("index")
         return redirect(next_url)
 
