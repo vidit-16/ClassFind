@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Create Account — ClassFind{% endblock %}
+{% block content %}
+<section class="auth-wrap">
+  <div class="auth-copy">
+    <p class="eyebrow">JOIN CLASSFIND</p>
+    <h1>Help return things to their owners.</h1>
+    <p>Create a student account to report lost or found items and keep track of your reports.</p>
+  </div>
+  <form class="auth-card" method="post">
+    <label>Your name<input name="name" required maxlength="100" autocomplete="name" placeholder="Your name"></label>
+    <label>Email<input type="email" name="email" required maxlength="160" autocomplete="email" placeholder="you@example.com"></label>
+    <label>Password<input type="password" name="password" required minlength="6" autocomplete="new-password" placeholder="At least 6 characters"></label>
+    <button class="primary-btn full" type="submit">Create account →</button>
+    <p class="auth-foot">Already registered? <a href="{{ url_for('login') }}">Sign in</a></p>
+  </form>
+</section>
+{% endblock %}
