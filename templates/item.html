@@ -3,7 +3,7 @@
 {% block content %}
 <a class="back-link" href="{{ url_for('index') }}">← Back to reports</a>
 <section class="detail-card">
-  <div class="detail-visual">{% if item.image_url %}<img src="{{ item.image_url }}" alt="{{ item.title }}">{% else %}<span>{{ item.category[:1].upper() }}</span>{% endif %}</div>
+  <div class="detail-visual">{% if item.image_src %}<img src="{{ item.image_src }}" alt="{{ item.title }}">{% else %}<span>{{ item.category[:1].upper() }}</span>{% endif %}</div>
   <div class="detail-content">
     <span class="status-pill {{ item.status_class }}">{{ item.status }}</span>
     <p class="item-category">{{ item.category }}</p><h1>{{ item.title }}</h1>
