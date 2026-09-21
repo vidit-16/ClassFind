@@ -15,7 +15,7 @@
   <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">C</span><span>ClassFind</span></a>
   <div class="nav-links">
     <a href="{{ url_for('index') }}">Browse</a>
-    <a href="{{ url_for('matches') }}">Matches</a>
+    <a href="{{ url_for('matches') }}">Matches</a>{% if current_user %}<a href="{{ url_for('claims') }}">Claims{% if incoming_claim_count or outgoing_claim_count %} <span class="count-badge">{{ incoming_claim_count + outgoing_claim_count }}</span>{% endif %}</a>{% endif %}
     {% if current_user %}
       <a href="{{ url_for('profile') }}">My Reports</a>
       {% if current_user.is_admin %}<a href="{{ url_for('admin_dashboard') }}">Admin</a>{% endif %}
