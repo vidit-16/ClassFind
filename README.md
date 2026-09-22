@@ -1,12 +1,8 @@
 # ClassFind
 
-**Online Lost and Found System — Cloud Computing Lab (Batch 9)**
+**Online Lost and Found System**
 
 ClassFind is a cloud-ready campus lost-and-found application where students can report missing belongings, post found items, search community reports, and surface potential lost/found matches.
-
-## Project requirement
-
-> **Online Lost and Found System** — Students can report and search for lost items.
 
 ## Features
 
