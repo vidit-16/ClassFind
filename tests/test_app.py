@@ -7,7 +7,20 @@ from io import BytesIO
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret"
 
-from app import Claim, Item, User, app, db, resolve_secret_key
+from app import (
+    MATCH_THRESHOLD,
+    PAGE_SIZE,
+    Claim,
+    Item,
+    User,
+    app,
+    build_matches,
+    cached_matches,
+    db,
+    overlap,
+    resolve_secret_key,
+    tokens,
+)
 
 
 class ClassFindTestCase(unittest.TestCase):
@@ -384,6 +397,129 @@ class ClassFindTestCase(unittest.TestCase):
         self.login(email="owner@example.com")
 
         self.assertEqual(self.client.get("/admin").status_code, 200)
+
+    def test_home_page_shows_one_page_at_a_time(self):
+        self.register()
+        with app.app_context():
+            owner = User.query.filter_by(email="alice@example.com").first()
+            for number in range(PAGE_SIZE + 4):
+                db.session.add(Item(
+                    title=f"Bottle {number}",
+                    description="Steel water bottle",
+                    category="Other",
+                    location="Canteen",
+                    status="Lost",
+                    reporter_name=owner.name,
+                    contact=owner.email,
+                    owner_id=owner.id,
+                ))
+            db.session.commit()
+
+        first = self.client.get("/").data
+        self.assertEqual(first.count(b"View report"), PAGE_SIZE)
+        self.assertIn(b"Page 1 of 2", first)
+
+        second = self.client.get("/?page=2").data
+        self.assertEqual(second.count(b"View report"), 4)
+        self.assertIn(b"Page 2 of 2", second)
+
+    def test_a_second_account_cannot_edit_someone_elses_report(self):
+        self.register(name="Alice", email="alice@example.com")
+        self.report("Blue umbrella", "Blue folding umbrella", "Other", "Gate 2", "Lost")
+        self.post("/logout", follow_redirects=True)
+
+        self.register(name="Bob", email="bob@example.com")
+        response = self.post(
+            "/item/1/edit",
+            data={
+                "title": "Mine now",
+                "description": "Taken over",
+                "category": "Other",
+                "location": "Gate 2",
+                "status": "Lost",
+            },
+            follow_redirects=True,
+        )
+        self.assertIn(b"You can only edit your own reports.", response.data)
+        with app.app_context():
+            self.assertEqual(db.session.get(Item, 1).title, "Blue umbrella")
+
+    def test_reports_filed_before_owner_id_existed_stay_editable(self):
+        """Rows from the old schema carry NULL, and fall back to the contact field."""
+        self.register(name="Alice", email="alice@example.com")
+        with app.app_context():
+            db.session.add(Item(
+                title="Old report",
+                description="Filed before the column existed",
+                category="Other",
+                location="Library",
+                status="Lost",
+                reporter_name="Alice",
+                contact="alice@example.com",
+                owner_id=None,
+            ))
+            db.session.commit()
+
+        response = self.post(
+            "/item/1/resolve", follow_redirects=True
+        )
+        self.assertIn(b"marked as resolved", response.data)
+
+    def test_faster_matching_returns_what_the_plain_version_would(self):
+        """The early exit only skips pairs that could not have cleared the cut-off."""
+        self.register()
+        seeds = [
+            ("Black wallet", "Black leather wallet with student ID", "Wallet & ID", "Library", "Lost"),
+            ("Wallet found", "Black leather wallet near the library steps", "Wallet & ID", "Library", "Found"),
+            ("Blue bottle", "Steel blue water bottle", "Other", "Canteen", "Lost"),
+            ("Bottle", "Blue steel bottle left on a table", "Other", "Canteen", "Found"),
+            ("Calculator", "Casio scientific calculator", "Electronics", "Lab 2", "Lost"),
+            ("Umbrella", "Red umbrella", "Other", "Hostel", "Found"),
+        ]
+        for title, description, category, location, status in seeds:
+            self.report(title, description, category, location, status)
+
+        with app.app_context():
+            fast = [(lost.id, found.id, score) for lost, found, score, _ in build_matches()]
+            self.assertEqual(fast, self.reference_matches())
+
+    @staticmethod
+    def reference_matches():
+        """Score every pair the long way, with no early exit."""
+        from difflib import SequenceMatcher
+
+        pairs = []
+        for lost in Item.query.filter_by(status="Lost").all():
+            for found in Item.query.filter_by(status="Found").all():
+                lost_text = tokens(f"{lost.title} {lost.description}")
+                found_text = tokens(f"{found.title} {found.description}")
+                days_apart = abs((lost.created_at - found.created_at).total_seconds()) / 86400
+                score = (
+                    overlap(lost_text, found_text) * 0.40
+                    + SequenceMatcher(None, lost.title.lower(), found.title.lower()).ratio() * 0.25
+                    + overlap(tokens(lost.location), tokens(found.location)) * 0.15
+                    + max(0.0, 1.0 - min(days_apart / 14.0, 1.0)) * 0.10
+                    + (0.10 if lost.category.lower() == found.category.lower() else 0.0)
+                )
+                score = min(score, 0.99)
+                if score >= MATCH_THRESHOLD:
+                    pairs.append((lost.id, found.id, round(score * 100)))
+        pairs.sort(key=lambda pair: pair[2], reverse=True)
+        return pairs[:30]
+
+    def test_matches_are_reused_until_a_report_changes(self):
+        self.register()
+        self.report("Black wallet", "Leather wallet", "Wallet & ID", "Library", "Lost")
+        self.report("Wallet", "Leather wallet found", "Wallet & ID", "Library", "Found")
+
+        with app.app_context():
+            first = cached_matches()
+            self.assertTrue(first)
+            self.assertIs(cached_matches(), first)
+
+        self.report("Blue bottle", "Steel bottle", "Other", "Canteen", "Found")
+        with app.app_context():
+            self.assertIsNot(cached_matches(), first)
 
     def test_login_rejects_bad_password(self):
         self.register()

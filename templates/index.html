@@ -127,6 +127,18 @@
 </article>
 {% endfor %}
 </section>
+
+{% if pages and pages.pages > 1 %}
+<nav class="pager" aria-label="Report pages">
+  {% if pages.has_prev %}
+  <a class="pager-link" href="{{ url_for('index', q=query, category=selected_category, status=selected_status, sort=sort_order, page=pages.prev_num) }}">Previous</a>
+  {% else %}<span class="pager-link disabled">Previous</span>{% endif %}
+  <span class="pager-state">Page {{ pages.page }} of {{ pages.pages }} &middot; {{ pages.total }} reports</span>
+  {% if pages.has_next %}
+  <a class="pager-link" href="{{ url_for('index', q=query, category=selected_category, status=selected_status, sort=sort_order, page=pages.next_num) }}">Next</a>
+  {% else %}<span class="pager-link disabled">Next</span>{% endif %}
+</nav>
+{% endif %}
 {% else %}
 <div class="empty-state empty-dashboard">
   <div class="empty-icon">⌕</div>

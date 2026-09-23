@@ -145,6 +145,11 @@ class Item(db.Model):
     reporter_name = db.Column(db.String(100), nullable=False)
     contact = db.Column(db.String(160), nullable=False)
     image_url = db.Column(db.String(500))
+    # Who may edit this report. Ownership used to be inferred by comparing the
+    # contact field to the signed-in email, which made an account detail into an
+    # access rule. Rows created before this column exists carry NULL and fall
+    # back to that comparison; see backfill_item_owners().
+    owner_id = db.Column(db.Integer, db.ForeignKey("user.id"), index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     claims = db.relationship("Claim", back_populates="item", cascade="all, delete-orphan")
 
@@ -182,8 +187,33 @@ class Claim(db.Model):
     claimant = db.relationship("User")
 
 
+def backfill_item_owners():
+    """Add item.owner_id where the schema predates it, and fill it in.
+
+    create_all() makes missing tables but never alters an existing one, so a
+    database created before this column stays without it and every query
+    referring to owner_id fails. This runs the one statement needed and matches
+    each report to the account whose email it was filed under.
+    """
+    inspector = db.inspect(db.engine)
+    if "item" not in inspector.get_table_names():
+        return
+    if any(column["name"] == "owner_id" for column in inspector.get_columns("item")):
+        return
+
+    db.session.execute(db.text("ALTER TABLE item ADD COLUMN owner_id INTEGER"))
+    db.session.execute(db.text(
+        "UPDATE item SET owner_id = ("
+        "  SELECT id FROM \"user\" WHERE lower(\"user\".email) = lower(item.contact)"
+        ")"
+    ))
+    db.session.commit()
+    app.logger.info("Added item.owner_id and matched existing reports to their accounts.")
+
+
 with app.app_context():
     db.create_all()
+    backfill_item_owners()
 
 if not app.config["S3_BUCKET"]:
     Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
@@ -201,7 +231,13 @@ def pending_claim_counts(user):
         return 0, 0
     incoming = (
         Claim.query.join(Item, Claim.item_id == Item.id)
-        .filter(Item.contact.ilike(user.email), Claim.status == "Pending")
+        .filter(
+            or_(
+                Item.owner_id == user.id,
+                db.and_(Item.owner_id.is_(None), Item.contact.ilike(user.email)),
+            ),
+            Claim.status == "Pending",
+        )
         .count()
     )
     outgoing = Claim.query.filter_by(claimant_id=user.id, status="Pending").count()
@@ -245,9 +281,22 @@ def admin_required(view):
     return wrapped
 
 
+def owns_item(user, item):
+    """Whether this account filed the report.
+
+    owner_id decides it. The email comparison is only for reports filed before
+    the column existed, where owner_id is NULL.
+    """
+    if not user:
+        return False
+    if item.owner_id is not None:
+        return item.owner_id == user.id
+    return item.contact.lower() == user.email.lower()
+
+
 def can_manage_item(item):
     user = get_current_user()
-    return bool(user and (user.is_admin or item.contact.lower() == user.email.lower()))
+    return bool(user and (user.is_admin or owns_item(user, item)))
 
 
 def allowed_file(filename):
@@ -328,6 +377,9 @@ def health():
         return {"status": "error", "database": "unavailable"}, 503
 
 
+PAGE_SIZE = 24
+
+
 @app.route("/")
 def index():
     query = request.args.get("q", "").strip()
@@ -352,10 +404,16 @@ def index():
         items_query = items_query.filter_by(status=status)
 
     if sort_order == "oldest":
-        items = items_query.order_by(Item.created_at.asc()).all()
+        ordered = items_query.order_by(Item.created_at.asc())
     else:
         sort_order = "newest"
-        items = items_query.order_by(Item.created_at.desc()).all()
+        ordered = items_query.order_by(Item.created_at.desc())
+
+    # Every report used to be loaded on every visit. One page at a time keeps
+    # the query bounded however many reports the campus files.
+    page = request.args.get("page", 1, type=int)
+    pages = db.paginate(ordered, page=max(page, 1), per_page=PAGE_SIZE, error_out=False)
+    items = pages.items
 
     stats = {
         "total": Item.query.count(),
@@ -372,6 +430,7 @@ def index():
     return render_template(
         "index.html",
         items=items,
+        pages=pages,
         stats=stats,
         categories=categories,
         latest_item=latest_item,
@@ -524,6 +583,7 @@ def report():
             status=status,
             reporter_name=user.name,
             contact=user.email,
+            owner_id=user.id,
             image_url=uploaded_url or image_url or None,
         )
         db.session.add(item)
@@ -759,6 +819,12 @@ def reject_claim(claim_id):
     return redirect(url_for("claims"))
 
 
+# A pair below this is not worth showing. The two reports the matches page
+# compares are capped so one popular week cannot turn this into a slow page.
+MATCH_THRESHOLD = 0.25
+MATCH_SCAN_LIMIT = 500
+TITLE_WEIGHT = 0.25
+
 STOP_WORDS = {
     "the", "a", "an", "and", "or", "of", "to", "in", "on", "at", "for",
     "with", "is", "my", "this", "that", "item", "lost", "found", "near",
@@ -777,36 +843,78 @@ def overlap(first, second):
 
 
 def build_matches():
-    lost_items = Item.query.filter_by(status="Lost").order_by(Item.created_at.desc()).all()
-    found_items = Item.query.filter_by(status="Found").order_by(Item.created_at.desc()).all()
+    """Rank Lost reports against Found reports by how much they have in common.
+
+    Two things keep this affordable. Each report is tokenised once instead of
+    once per comparison, and the title similarity, which is the expensive part,
+    is skipped for any pair that could not reach the cut-off even with a perfect
+    title. SequenceMatcher offers two cheap upper bounds on its own result,
+    real_quick_ratio and quick_ratio, so a pair is dropped as soon as one of
+    them puts it out of reach. Both are upper bounds, so nothing that would have
+    been shown is lost.
+
+    Equal scores are ordered by report id, so the page does not reshuffle
+    between requests.
+    """
+    lost_items = (
+        Item.query.filter_by(status="Lost")
+        .order_by(Item.created_at.desc())
+        .limit(MATCH_SCAN_LIMIT)
+        .all()
+    )
+    found_items = (
+        Item.query.filter_by(status="Found")
+        .order_by(Item.created_at.desc())
+        .limit(MATCH_SCAN_LIMIT)
+        .all()
+    )
+
+    def prepared(items):
+        return [
+            (
+                item,
+                tokens(f"{item.title} {item.description}"),
+                tokens(item.location),
+                item.title.lower(),
+                item.category.lower(),
+            )
+            for item in items
+        ]
+
+    lost_prepared = prepared(lost_items)
     pairs = []
 
-    for lost in lost_items:
-        for found in found_items:
-            lost_text = tokens(f"{lost.title} {lost.description}")
-            found_text = tokens(f"{found.title} {found.description}")
+    for found, found_text, found_location, found_title, found_category in prepared(found_items):
+        # One matcher per found title: its index of that string is built once
+        # and reused against every lost title.
+        matcher = SequenceMatcher(None, "", found_title)
+
+        for lost, lost_text, lost_location, lost_title, lost_category in lost_prepared:
             text_score = overlap(lost_text, found_text)
-            title_score = SequenceMatcher(
-                None, lost.title.lower(), found.title.lower()
-            ).ratio()
-
-            lost_location = tokens(lost.location)
-            found_location = tokens(found.location)
             location_score = overlap(lost_location, found_location)
-
             days_apart = abs((lost.created_at - found.created_at).total_seconds()) / 86400
             recency_score = max(0.0, 1.0 - min(days_apart / 14.0, 1.0))
+            same_category = lost_category == found_category
 
             score = (
                 text_score * 0.40
-                + title_score * 0.25
                 + location_score * 0.15
                 + recency_score * 0.10
+                + (0.10 if same_category else 0.0)
             )
-            reasons = []
 
-            if lost.category.lower() == found.category.lower():
-                score += 0.10
+            matcher.set_seq1(lost_title)
+            if score + TITLE_WEIGHT * matcher.real_quick_ratio() < MATCH_THRESHOLD:
+                continue
+            if score + TITLE_WEIGHT * matcher.quick_ratio() < MATCH_THRESHOLD:
+                continue
+
+            score = min(score + TITLE_WEIGHT * matcher.ratio(), 0.99)
+            if score < MATCH_THRESHOLD:
+                continue
+
+            reasons = []
+            if same_category:
                 reasons.append("same category")
             if location_score > 0:
                 reasons.append("similar location")
@@ -816,20 +924,39 @@ def build_matches():
             if shared:
                 reasons.append(f"shared terms: {', '.join(shared[:3])}")
 
-            score = min(score, 0.99)
+            pairs.append((lost, found, round(score * 100), reasons or ["related details"]))
 
-            if score >= 0.25:
-                pairs.append(
-                    (lost, found, round(score * 100), reasons or ["related details"])
-                )
-
-    pairs.sort(key=lambda pair: pair[2], reverse=True)
+    pairs.sort(key=lambda pair: (-pair[2], pair[0].id, pair[1].id))
     return pairs[:30]
+
+
+_match_cache = {"key": None, "pairs": []}
+
+
+def matches_cache_key():
+    """Changes whenever a report that matching reads is added, edited or removed."""
+    counts = dict(
+        db.session.query(Item.status, db.func.count(Item.id))
+        .filter(Item.status.in_(("Lost", "Found")))
+        .group_by(Item.status)
+        .all()
+    )
+    newest = db.session.query(db.func.max(Item.created_at)).scalar()
+    return (counts.get("Lost", 0), counts.get("Found", 0), newest, Item.query.count())
+
+
+def cached_matches():
+    """build_matches() is quadratic, so repeat visits reuse the last result."""
+    key = matches_cache_key()
+    if _match_cache["key"] != key:
+        _match_cache["pairs"] = build_matches()
+        _match_cache["key"] = key
+    return _match_cache["pairs"]
 
 
 @app.route("/matches")
 def matches():
-    return render_template("matches.html", pairs=build_matches())
+    return render_template("matches.html", pairs=cached_matches())
 
 
 @app.route("/admin")

@@ -1,5 +1,9 @@
+import os
 import unittest
 from pathlib import Path
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+os.environ.setdefault("SECRET_KEY", "test-secret")
 
 from app import app
 

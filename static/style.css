@@ -95,3 +95,33 @@ body::after{content:"";position:fixed;z-index:-1;width:420px;height:420px;right:
 .institution-name{font-family:"Roboto Slab",Georgia,serif;font-weight:700;letter-spacing:.015em}
 .bit-logo{width:30px;height:35px;object-fit:contain}
 @media(max-width:560px){.brand-wordmark{font-size:19px}.bit-logo{width:28px;height:33px}}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  margin: 28px 0 8px;
+  flex-wrap: wrap;
+}
+
+.pager-link {
+  border: 1px solid var(--line, #d9d9d9);
+  border-radius: 8px;
+  padding: 8px 16px;
+  text-decoration: none;
+  color: inherit;
+  font-size: 14px;
+}
+
+.pager-link.disabled {
+  opacity: 0.45;
+}
+
+.pager-state {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
