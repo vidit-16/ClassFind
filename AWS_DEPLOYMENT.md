@@ -39,15 +39,20 @@ Create an Elastic Beanstalk application using the Python platform and deploy thi
 
 The included Procfile starts Gunicorn on port 8000:
 
-`gunicorn --bind 0.0.0.0:8000 app:app`
+`gunicorn --bind 0.0.0.0:8000 application:application`
 
 Set these environment variables:
 
+`CLASSFIND_ENV=production`
 `SECRET_KEY=<long-random-secret>`
 `ADMIN_EMAIL=<admin-email>`
 `DATABASE_URL=<RDS connection string>`
 `S3_BUCKET=<bucket name>`
 `AWS_REGION=<bucket region>`
+
+Set CLASSFIND_ENV and SECRET_KEY before the first deploy. With CLASSFIND_ENV=production
+and no SECRET_KEY the app stops on startup rather than signing sessions with a key
+published in this repository. ADMIN_EMAIL decides which account sees the admin pages.
 
 ## 5. Verify
 
