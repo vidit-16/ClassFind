@@ -19,7 +19,46 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "classfind-dev-key")
+
+
+def is_production(env=None):
+    """True when CLASSFIND_ENV names a deployed environment."""
+    env = os.environ if env is None else env
+    return env.get("CLASSFIND_ENV", "development").strip().lower() in {"production", "prod"}
+
+
+def resolve_secret_key(env=None):
+    """The session signing key.
+
+    A key committed to a public repository signs nothing: anyone who reads it
+    can mint a session cookie for any account, including an admin one. So there
+    is no default. In production a missing key stops the app. Elsewhere it gets
+    a random key, which costs a sign-in whenever the process restarts and is the
+    cheap reminder to set SECRET_KEY.
+    """
+    env = os.environ if env is None else env
+    key = env.get("SECRET_KEY", "").strip()
+    if key:
+        return key
+    if is_production(env):
+        raise RuntimeError(
+            "SECRET_KEY is not set. Set it on the environment before deploying: "
+            "any session cookie signed with a shared key can be forged."
+        )
+    app.logger.warning(
+        "SECRET_KEY is not set; using a random key for this process. "
+        "Sessions will not survive a restart. Set SECRET_KEY to keep them."
+    )
+    return token_urlsafe(32)
+
+
+def admin_email(env=None):
+    """The one account allowed to hold admin rights, from ADMIN_EMAIL."""
+    env = os.environ if env is None else env
+    return env.get("ADMIN_EMAIL", "").strip().lower()
+
+
+app.config["SECRET_KEY"] = resolve_secret_key()
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = os.getenv("COOKIE_SECURE", "").lower() in {"1", "true", "yes"}
@@ -363,9 +402,9 @@ def register():
             flash("An account with that email already exists.", "error")
             return render_template("register.html")
 
-        is_first_user = User.query.count() == 0
-        admin_email = os.getenv("ADMIN_EMAIL", "").strip().lower()
-        is_admin = is_first_user or (admin_email and email == admin_email)
+        # Admin comes from ADMIN_EMAIL only. It used to be granted to whoever
+        # registered first, which on a public deployment is a stranger.
+        is_admin = bool(admin_email()) and email == admin_email()
 
         user = User(
             name=name,
@@ -395,6 +434,11 @@ def login():
         if not user or not check_password_hash(user.password_hash, password):
             flash("Incorrect email or password.", "error")
             return render_template("login.html")
+
+        # ADMIN_EMAIL may be set after the account was made, so apply it here too.
+        if admin_email() and user.email == admin_email() and not user.is_admin:
+            user.is_admin = True
+            db.session.commit()
 
         session["user_id"] = user.id
         next_url = request.args.get("next") or url_for("index")

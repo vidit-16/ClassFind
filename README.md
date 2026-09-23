@@ -63,8 +63,8 @@ The SQLite database is created automatically. Updating from the original version
 
 ## First-use demo
 
-1. Create the first student account.
-2. The first account is treated as the initial admin account for an easy lab demonstration.
+1. Set ADMIN_EMAIL to the address you will register with, so that account gets the admin view.
+2. Create the account.
 3. Create one Lost report and one Found report.
 4. Search and filter reports.
 5. Open the Matches page to see potential Lost/Found pairs.
@@ -72,7 +72,7 @@ The SQLite database is created automatically. Updating from the original version
 7. Open Admin to view users and recent reports.
 8. Mark a report as Resolved.
 
-For a deployed environment, set the ADMIN_EMAIL environment variable to the account that should have admin access instead of relying on the first-account behaviour.
+Admin rights come only from ADMIN_EMAIL. The account whose email matches gets them when it registers, or the next time it signs in if the variable was set later.
 
 ## AWS deployment
 
@@ -119,12 +119,16 @@ Use the AWS Elastic Beanstalk Python platform and deploy this repository/source 
 Set these environment variables in the environment:
 
 ~~~text
+CLASSFIND_ENV=production
 SECRET_KEY=<long-random-secret>
 ADMIN_EMAIL=<admin-account-email>
 S3_BUCKET=<your-s3-bucket-name>
 AWS_REGION=ap-south-1
 DATABASE_URL=<your-rds-connection-string>
 ~~~
+
+With CLASSFIND_ENV=production the app refuses to start without SECRET_KEY, so a
+deployment cannot fall back to a key that anyone reading this repository knows.
 
 The application does not require AWS access keys in source code. On Elastic Beanstalk, use the environment's IAM role for S3 permissions.
 

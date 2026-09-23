@@ -7,7 +7,7 @@ from io import BytesIO
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret"
 
-from app import Claim, Item, User, app, db
+from app import Claim, Item, User, app, db, resolve_secret_key
 
 
 class ClassFindTestCase(unittest.TestCase):
@@ -42,6 +42,12 @@ class ClassFindTestCase(unittest.TestCase):
             data={"name": name, "email": email, "password": password},
             follow_redirects=True,
         )
+
+    def register_admin(self, email="alice@example.com"):
+        """Register the one account ADMIN_EMAIL names, so it holds admin rights."""
+        os.environ["ADMIN_EMAIL"] = email
+        self.addCleanup(os.environ.pop, "ADMIN_EMAIL", None)
+        return self.register(email=email)
 
     def login(self, email="alice@example.com", password="secret123"):
         return self.post(
@@ -99,7 +105,7 @@ class ClassFindTestCase(unittest.TestCase):
         with app.app_context():
             user = User.query.filter_by(email="alice@example.com").first()
             self.assertIsNotNone(user)
-            self.assertTrue(user.is_admin)
+            self.assertFalse(user.is_admin)
 
         response = self.report(
             "Black wallet",
@@ -250,7 +256,7 @@ class ClassFindTestCase(unittest.TestCase):
             self.assertEqual(db.session.get(Item, found_id).status, "Resolved")
 
     def test_admin_dashboard_and_delete(self):
-        self.register()
+        self.register_admin()
         response = self.client.get("/admin")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"ADMIN CONTROL ROOM", response.data)
@@ -350,6 +356,35 @@ class ClassFindTestCase(unittest.TestCase):
             self.assertIsNone(db.session.get(Item, found_id))
             self.assertIsNone(db.session.get(Claim, claim_id))
 
+    def test_first_account_is_not_an_admin(self):
+        self.register()
+        self.assertEqual(self.client.get("/admin").status_code, 302)
+        with app.app_context():
+            self.assertFalse(User.query.filter_by(email="alice@example.com").first().is_admin)
+
+    def test_only_the_named_account_becomes_admin(self):
+        os.environ["ADMIN_EMAIL"] = "owner@example.com"
+        self.addCleanup(os.environ.pop, "ADMIN_EMAIL", None)
+
+        self.register(name="Alice", email="alice@example.com")
+        self.post("/logout", follow_redirects=True)
+        self.register(name="Owner", email="owner@example.com")
+
+        with app.app_context():
+            self.assertFalse(User.query.filter_by(email="alice@example.com").first().is_admin)
+            self.assertTrue(User.query.filter_by(email="owner@example.com").first().is_admin)
+        self.assertEqual(self.client.get("/admin").status_code, 200)
+
+    def test_admin_email_set_after_the_account_exists_applies_on_sign_in(self):
+        self.register(name="Owner", email="owner@example.com")
+        self.post("/logout", follow_redirects=True)
+
+        os.environ["ADMIN_EMAIL"] = "owner@example.com"
+        self.addCleanup(os.environ.pop, "ADMIN_EMAIL", None)
+        self.login(email="owner@example.com")
+
+        self.assertEqual(self.client.get("/admin").status_code, 200)
+
     def test_login_rejects_bad_password(self):
         self.register()
         self.post("/logout", follow_redirects=True)
@@ -364,3 +399,23 @@ class ClassFindTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SecretKeyTestCase(unittest.TestCase):
+    """The key that signs sessions is never a value committed to the repository."""
+
+    def test_configured_key_is_used(self):
+        self.assertEqual(resolve_secret_key({"SECRET_KEY": "from-the-environment"}),
+                         "from-the-environment")
+
+    def test_production_without_a_key_refuses_to_start(self):
+        with self.assertRaises(RuntimeError):
+            resolve_secret_key({"CLASSFIND_ENV": "production"})
+        with self.assertRaises(RuntimeError):
+            resolve_secret_key({"CLASSFIND_ENV": "production", "SECRET_KEY": "   "})
+
+    def test_development_without_a_key_gets_a_random_one(self):
+        first = resolve_secret_key({})
+        second = resolve_secret_key({})
+        self.assertNotEqual(first, second)
+        self.assertGreater(len(first), 20)
