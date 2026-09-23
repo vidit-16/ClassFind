@@ -7,3 +7,7 @@ venv/
 .vscode/
 .idea/
 .DS_Store
+
+# Local uploads and screenshot fixtures
+static/uploads/
+screenshots.db

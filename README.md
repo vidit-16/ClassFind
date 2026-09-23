@@ -1,221 +1,150 @@
-# ClassFind
+# ClassFind — Campus Lost and Found
 
-**Online Lost and Found System**
+[![CI](https://github.com/vidit-16/ClassFind/actions/workflows/ci.yml/badge.svg)](https://github.com/vidit-16/ClassFind/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 
-ClassFind is a cloud-ready campus lost-and-found application where students can report missing belongings, post found items, search community reports, and surface potential lost/found matches.
+A lost-and-found board for a campus. Students report what they lost or found,
+search what others have reported, and claim an item that looks like theirs. The
+app compares active Lost and Found reports and shows which pairs look like the
+same object, with the reasons for each score.
 
-## Features
+**Live app:** http://classfind-prod.eba-ttyqcasp.ap-south-1.elasticbeanstalk.com/
 
-- Student registration, login and logout
-- Report lost or found items
-- Automatic reporter identity from the signed-in account
-- Search reports by keyword
-- Filter by category and status
-- Individual report pages
-- Manage your own reports
-- Mark an item as resolved
-- Delete your own reports
-- Dashboard counters for total, lost, found and resolved reports
-- Deterministic potential-match detection between active Lost and Found reports
-- Admin dashboard for report and user oversight
-- Optional item image URL
-- Responsive interface for desktop and mobile
-- SQLite for local development and PostgreSQL for cloud deployment
+<p align="center">
+  <img src="docs/screenshots/classfind_home.png" alt="Board of reported items with search and filters" width="80%">
+</p>
+<p align="center"><em>The board: every active report, searchable by keyword, category and status.</em></p>
 
-## Technology stack
+<p align="center">
+  <img src="docs/screenshots/classfind_matches.png" alt="Potential matches between lost and found reports" width="49%">
+  <img src="docs/screenshots/classfind_item.png" alt="A single report with its claim form" width="49%">
+</p>
+<p align="center"><em>Potential Lost/Found pairs with the reasons behind each percentage (left). A single report, where the owner can open a claim (right).</em></p>
 
-- **Frontend:** HTML, CSS, vanilla JavaScript
-- **Backend:** Python + Flask
-- **Database:** SQLAlchemy ORM
-- **Authentication:** Flask sessions + Werkzeug password hashing
-- **Local database:** SQLite
-- **Cloud database:** PostgreSQL
-- **Deployment:** AWS Elastic Beanstalk + Gunicorn
-- **Image storage:** Amazon S3
+## What it does
+
+- **Report** a lost or found item, with category, location and an optional photo.
+  The reporter's name and contact come from the signed-in account rather than a
+  form field, so they cannot be spoofed by whoever fills the form.
+- **Search and filter** by keyword, category and status, 24 reports to a page.
+- **Claim** a found item. The finder sees the claim, and accepts, rejects or
+  waits; the claimant can withdraw it. Accepting a claim resolves the report.
+- **Matches** compares every active Lost report against every active Found one
+  and lists the pairs worth a look, each with the reasons behind its score.
+- **Admin** view over all reports and accounts, for one account named by
+  `ADMIN_EMAIL`.
+- **Images** go to S3 when a bucket is configured, served through presigned URLs
+  so the bucket stays private, and to local disk otherwise.
+
+## How matching works
+
+There is no model here. Each active Lost report is compared with each active
+Found report on four signals, and the score is a weighted sum:
+
+| Signal | Weight | How it is measured |
+| --- | ---: | --- |
+| Shared words in title and description | 0.40 | Jaccard overlap of tokens, stop words removed |
+| Title similarity | 0.25 | `difflib.SequenceMatcher` ratio |
+| Shared words in location | 0.15 | Jaccard overlap of tokens |
+| Reported close together | 0.10 | Falls from 1 to 0 over 14 days |
+| Same category | 0.10 | Exact match |
+
+Pairs below 25% are dropped, the rest are shown with their reasons, and equal
+scores are ordered by report id so the page does not reshuffle between visits.
+
+Comparing every pair is quadratic, so three things keep the page usable: each
+report is tokenised once rather than once per comparison, `SequenceMatcher`'s
+own cheap upper bounds skip pairs that cannot reach the cut-off before the
+expensive comparison runs, and the result is cached until a report changes. On
+seeded data, 600 reports a side went from 31.3s to 19.1s with identical output.
+Beyond `MATCH_SCAN_LIMIT` (500 a side) only the newest reports are compared.
+
+## Stack
+
+- **Backend:** Flask, SQLAlchemy
+- **Frontend:** Jinja templates, plain CSS and JavaScript, no build step
+- **Database:** SQLite locally, PostgreSQL on RDS in the cloud
+- **Images:** local disk, or S3 with presigned URLs
+- **Deployment:** Elastic Beanstalk with Gunicorn
 
 ## Run locally
 
-Clone the repository:
-
-~~~bash
+```bash
 git clone https://github.com/vidit-16/ClassFind.git
 cd ClassFind
 python -m venv .venv
-~~~
+.venv/Scripts/python.exe -m pip install -r requirements.txt   # Windows
+.venv/Scripts/python.exe app.py
+```
 
-On Windows PowerShell, when execution-policy settings prevent activating the environment, run the venv Python directly:
+On macOS or Linux, activate the venv and run `pip install -r requirements.txt`
+then `python app.py`. The app starts on http://127.0.0.1:5000 and creates
+`classfind.db` on first run.
 
-~~~powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe app.py
-~~~
+To see the admin pages, set `ADMIN_EMAIL` to the address you register with.
+Without `SECRET_KEY` the app generates a random one per process and says so in
+the log, which means sessions end when you restart it.
 
-Otherwise, after activating the environment:
+## Configuration
 
-~~~bash
-pip install -r requirements.txt
-python app.py
-~~~
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `CLASSFIND_ENV` | `production` makes `SECRET_KEY` mandatory | `development` |
+| `SECRET_KEY` | Signs session cookies | random per process, outside production |
+| `ADMIN_EMAIL` | The one account that gets admin pages | none, so nobody is admin |
+| `DATABASE_URL` | SQLite or PostgreSQL connection string | `sqlite:///classfind.db` |
+| `S3_BUCKET` | Bucket for uploaded images | unset, images go to local disk |
+| `AWS_REGION` | Region for that bucket | `ap-south-1` |
+| `COOKIE_SECURE` | Send session cookies only over HTTPS | off |
+| `UPLOAD_FOLDER` | Where local images are written | `static/uploads` |
 
-Open http://127.0.0.1:5000.
+## Deployment
 
-The SQLite database is created automatically. Updating from the original version will also create the new User table without requiring a separate database server.
+[AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md) covers the S3 bucket and its policy, the
+IAM permissions the instance role needs, RDS, and the Elastic Beanstalk
+environment. The short version: set the variables above, push the source
+bundle, and check `/health`, which reports the database as well as the app.
 
-## First-use demo
+## Tests
 
-1. Set ADMIN_EMAIL to the address you will register with, so that account gets the admin view.
-2. Create the account.
-3. Create one Lost report and one Found report.
-4. Search and filter reports.
-5. Open the Matches page to see potential Lost/Found pairs.
-6. Open My Reports to manage your own reports.
-7. Open Admin to view users and recent reports.
-8. Mark a report as Resolved.
+```bash
+.venv/Scripts/python.exe -m unittest discover -s tests -v
+```
 
-Admin rights come only from ADMIN_EMAIL. The account whose email matches gets them when it registers, or the next time it signs in if the variable was set later.
-
-## AWS deployment
-
-ClassFind is designed to run on AWS using:
-
-- **Elastic Beanstalk** for the Flask web application
-- **RDS for PostgreSQL** for users, reports and claims
-- **S3** for persistent item images
-
-Elastic Beanstalk supports Python web applications and can run Flask behind WSGI/Gunicorn. The repository includes a Procfile with the Gunicorn start command.
-
-### 1. Create an S3 bucket
-
-Create a private S3 bucket for ClassFind item images. Keep Block Public Access enabled. The application generates time-limited presigned GET URLs for displaying private images. AWS documents presigned URLs as the way to grant temporary access to private S3 objects.
-
-### 2. Configure AWS permissions
-
-Give the Elastic Beanstalk EC2 instance role permission to work with the ClassFind bucket. The application uses the AWS SDK for Python (Boto3) and its S3 upload APIs.
-
-Minimum object permissions:
-
-~~~text
-s3:GetObject
-s3:PutObject
-s3:DeleteObject
-~~~
-
-Scope them to the ClassFind bucket and the items/ prefix.
-
-### 3. Create PostgreSQL on RDS
-
-Create a PostgreSQL database in Amazon RDS and make it reachable from the Elastic Beanstalk environment. AWS documents RDS integration with Elastic Beanstalk for PostgreSQL applications.
-
-Set the application environment variable:
-
-~~~text
-DATABASE_URL=postgresql://<user>:<password>@<host>:5432/<database>
-~~~
-
-### 4. Create the Elastic Beanstalk environment
-
-Use the AWS Elastic Beanstalk Python platform and deploy this repository/source bundle. Elastic Beanstalk can deploy Flask applications and uses the Procfile in the source bundle to configure the WSGI server.
-
-Set these environment variables in the environment:
-
-~~~text
-CLASSFIND_ENV=production
-SECRET_KEY=<long-random-secret>
-ADMIN_EMAIL=<admin-account-email>
-S3_BUCKET=<your-s3-bucket-name>
-AWS_REGION=ap-south-1
-DATABASE_URL=<your-rds-connection-string>
-~~~
-
-With CLASSFIND_ENV=production the app refuses to start without SECRET_KEY, so a
-deployment cannot fall back to a key that anyone reading this repository knows.
-
-The application does not require AWS access keys in source code. On Elastic Beanstalk, use the environment's IAM role for S3 permissions.
-
-### Local vs AWS storage
-
-Without S3 configuration, local development keeps uploaded files under:
-
-~~~text
-static/uploads/
-~~~
-
-When S3_BUCKET is configured, uploads go to:
-
-~~~text
-s3://<bucket>/items/<random-file-name>
-~~~
-
-The database stores the S3 object reference, and the application generates a temporary URL when the image needs to be displayed.
-
-### AWS architecture
-
-~~~text
-Browser
-   |
-   v
-AWS Elastic Beanstalk
-   |
-   +---- Flask + Python
-   |
-   +---- Amazon RDS PostgreSQL
-   |       - Users
-   |       - Reports
-   |       - Claims
-   |
-   +---- Amazon S3
-           - Item images
-~~~
-
-## Matching logic
-
-ClassFind's matching feature is deliberately explainable for a lab project. It compares each active Lost report with active Found reports using:
-
-- description/title keyword overlap
-- matching categories
-- overlapping location terms
-
-The result is shown as a percentage with the matching reasons, rather than relying on a hidden model.
-
-## Cloud computing concepts demonstrated
-
-- **Cloud-hosted application:** Flask can run on a public cloud platform.
-- **Cloud database:** PostgreSQL persists application data separately from the web process.
-- **Environment configuration:** secrets and database connection details are supplied through environment variables.
-- **Stateless web layer:** user session state is kept in signed cookies while application records remain in the database.
-- **CRUD operations:** create, read, update status, and delete reports.
-- **Role-based access:** student and admin views expose different management actions.
-- **Scalable architecture:** multiple web processes can share the managed PostgreSQL database.
+24 tests, no network and no AWS account needed. They cover registration and
+sign-in, reporting, search, the claim workflow end to end, admin access, CSRF
+rejection and the security headers, image upload, pagination across two pages,
+one account failing to edit another's report, and a check that the fast
+matching path returns exactly what a plain double loop returns on the same data.
+CI runs them on every push.
 
 ## Project structure
 
-~~~text
+```
 ClassFind/
-├── app.py
-├── requirements.txt
-├── Procfile
-├── render.yaml
-├── README.md
-├── .gitignore
-├── templates/
-│   ├── base.html
-│   ├── login.html
-│   ├── register.html
-│   ├── profile.html
-│   ├── report.html
-│   ├── item.html
-│   ├── matches.html
-│   ├── admin.html
-│   └── 404.html
-└── static/
-    ├── style.css
-    └── app.js
-~~~
+├── app.py                  config, models, routes, matching
+├── application.py          WSGI entry point for Elastic Beanstalk
+├── Procfile                Gunicorn command
+├── templates/              Jinja templates, including 400/404/500 pages
+├── static/                 style.css, app.js, logo
+├── tests/                  test_app.py, test_quality.py
+├── aws/                    S3 bucket policy
+├── docs/screenshots/       images used in this README
+└── .github/workflows/      CI
+```
 
-## Future enhancements
+## Known limits
 
-- Real image uploads using cloud object storage
-- Email notifications for potential matches
-- Campus-specific departments and locations
-- Moderation actions and audit logs
-- Stronger fuzzy matching or ML-based similarity
+- **Email addresses are not verified.** Anyone can register with any address, so
+  the contact on a report proves nothing about who posted it.
+- **A claim is a message, not proof.** The finder decides; the app only records
+  the exchange.
+- **Matching is a hint.** A percentage points at pairs worth checking. It does
+  not establish ownership, and it cannot match a report to an item nobody has
+  posted yet.
+- **The live URL is plain HTTP.** Set `COOKIE_SECURE=1` once the environment is
+  behind HTTPS with a certificate.
+- **Schema changes are manual.** `create_all()` makes missing tables, and
+  `backfill_item_owners()` adds the one column that arrived later. Anything
+  further needs a real migration tool.
