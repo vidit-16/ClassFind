@@ -1,0 +1,4 @@
+*.sh text eol=lf
+.platform/** text eol=lf
+.ebextensions/** text eol=lf
+Procfile text eol=lf

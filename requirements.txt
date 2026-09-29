@@ -1,5 +1,6 @@
 Flask==3.1.2
 Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.54
 psycopg2-binary==2.9.10
 boto3==1.40.29
 gunicorn==23.0.0
