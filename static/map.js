@@ -724,6 +724,19 @@
   }
 
 
+  // A spoken search: the words go in the box and a named place filters the map.
+  document.addEventListener("classfind:spoken-search", ({ detail }) => {
+    if (retracing) setMode("search");
+    if (queryInput) queryInput.value = detail.q || "";
+    if (detail.place && placeById(detail.place)) {
+      select(detail.place);
+    } else {
+      if (selected) select("", { search: false });
+      if (placeInput) placeInput.value = detail.place || "";
+      searchAgain();
+    }
+  });
+
   // A report in the list lights up its place on the map.
   document.addEventListener("mouseover", (event) => {
     const row = event.target.closest && event.target.closest(".result-row");

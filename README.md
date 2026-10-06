@@ -34,9 +34,10 @@ same object, with the reasons for each score.
   and shows what was found on the way: anything at the places you went into,
   and whatever was found outside the places you only walked past.
 - **Voice.** Say it instead: "I lost my black wallet, I was in P1, then the
-  canteen, then workshops." The browser turns speech into text (English,
-  Kannada or Hindi), the server reads out the item, places and time, and
-  Retrace fills itself in.
+  canteen, then workshops." The page records the clip and Gemini listens to it,
+  so English, Hindi, Kannada, Hinglish or a mix all work without picking a
+  language. A spoken sentence fills in Retrace, the search box, or the report
+  form, with an English item name and description.
 - **Places from words.** "mech parking", "mechanical parking" and "garage" are
   the same place; "CS lab" is the Main Block; "canteen" could be three places, so
   the report form asks which. Misheard words like "mesh parking" still match.
@@ -148,7 +149,7 @@ bundle, and check `/health`, which reports the database as well as the app.
 .venv/Scripts/python.exe -m unittest discover -s tests -v
 ```
 
-83 tests, no network and no AWS account needed. They cover registration and
+90 tests, no network and no AWS account needed. They cover registration and
 sign-in, reporting, search, the security desk flow from drop-off to handover,
 collection codes that are single use and expire, admin access, CSRF
 rejection and the security headers, image upload, pagination across two pages,
@@ -193,10 +194,10 @@ ClassFind/
 - **The map is approximate.** It was traced from a sketch, so distances and
   shapes are close, not surveyed. Retrace counts a building as passed when the
   route comes within about 30 map units of it or crosses the road to its door.
-- **Voice needs Chrome, Edge or Safari, over HTTPS.** Firefox has no speech
-  recognition, and browsers only allow the microphone on secure pages; there
-  the mic stays hidden and typing works. Chrome sends the audio to Google to
-  recognise it.
+- **Voice needs HTTPS and a Gemini key.** Browsers only allow the microphone
+  on secure pages; elsewhere the mic stays hidden and typing works. Clips go to
+  Google's Gemini API to be understood. Without `GEMINI_API_KEY`, the
+  browser's own captions are used where it has them (Chrome, Edge, Safari).
 - **Schema changes are manual.** `create_all()` makes missing tables, and
   `backfill_item_owners()` adds the one column that arrived later. Anything
   further needs a real migration tool.

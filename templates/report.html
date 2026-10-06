@@ -21,7 +21,7 @@
         <label>Describe it in one sentence <span class="optional">(optional)</span>
           <textarea class="quick-report-text" maxlength="600" rows="2" placeholder="e.g. Lost my black Milton bottle near the library yesterday"></textarea>
         </label>
-        <div class="quick-report-actions"><button class="secondary-btn quick-report-button" type="button">Fill the form for me</button><button type="button" class="mic-button compact-mic" data-target=".quick-report-text" hidden aria-pressed="false"><span class="mic-icon" aria-hidden="true"></span><span class="mic-label">Say it</span></button><span class="quick-report-status" aria-live="polite"></span></div>
+        <div class="quick-report-actions"><button class="secondary-btn quick-report-button" type="button">Fill the form for me</button><button type="button" class="mic-button compact-mic" data-voice="report" data-voice-url="{{ url_for('voice') }}" hidden aria-pressed="false"><span class="mic-icon" aria-hidden="true"></span><span class="mic-label">Say it</span></button><span class="quick-report-status" aria-live="polite"></span></div>
       </div>
       <div class="form-section">
         <p class="section-kicker">ITEM DETAILS</p>

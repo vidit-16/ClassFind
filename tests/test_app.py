@@ -730,6 +730,58 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertIn("microphone=(self)", policy)
         self.assertIn("camera=()", policy)
 
+    def voice(self, mode, heard=None, transcript="", audio=b"RIFF....WAVEfmt "):
+        token = self.csrf_token()
+        data = {"mode": mode, "transcript": transcript}
+        if audio:
+            data["audio"] = (BytesIO(audio), "clip.wav")
+        with mock.patch("app.hear_with_gemini", return_value=heard) as heard_mock:
+            response = self.client.post("/api/voice", data=data, headers={"X-CSRF-Token": token},
+                                        content_type="multipart/form-data")
+        return response, heard_mock
+
+    def test_voice_report_takes_gemini_fields_in_english(self):
+        self.register()
+        heard = {"transcript": "Mujhe computer lab mein ek key mili hai", "english": "I found a key in the computer lab",
+                 "status": "Found", "title": "Key", "description": "A single key, found in the computer lab.",
+                 "category": "Keys", "location": "computer lab", "places": ["computer lab"], "when": "today"}
+        response, heard_mock = self.voice("report", heard)
+        data = response.get_json()
+        heard_mock.assert_called_once()
+        self.assertEqual(data["source"], "gemini")
+        self.assertEqual(data["heard"], "Mujhe computer lab mein ek key mili hai")
+        self.assertEqual((data["fields"]["title"], data["fields"]["status"], data["fields"]["category"]),
+                         ("Key", "Found", "Keys"))
+        self.assertNotIn("Mujhe", data["fields"]["description"])
+
+    def test_voice_retrace_and_search_from_gemini(self):
+        heard = {"transcript": "ನಾನು P1 ಇಂದ canteen ಗೆ ಹೋದೆ", "english": "I went from P1 to the canteen",
+                 "title": "water bottle", "places": ["P1", "canteen", "mesh parking"], "when": "yesterday"}
+        data = self.voice("retrace", heard)[0].get_json()
+        self.assertEqual([stop["ids"] for stop in data["stops"]],
+                         [["p1"], ["canteen", "puff-shop", "nandini"], ["mech-parking"]])
+        self.assertEqual((data["item"], data["when"]), ("water bottle", "yesterday"))
+        search = self.voice("search", {"english": "black wallet near the canteen", "title": "black wallet",
+                                       "places": ["canteen"]})[0].get_json()
+        self.assertEqual((search["q"], search["place"]), ("black wallet", "canteen"))
+        search = self.voice("search", {"english": "umbrella in mech parking", "title": "umbrella",
+                                       "places": ["mechanical parking"]})[0].get_json()
+        self.assertEqual(search["place"], "mech-parking")
+
+    def test_voice_falls_back_to_the_browser_captions(self):
+        data = self.voice("search", None, transcript="red umbrella mech parking", audio=b"")[0].get_json()
+        self.assertEqual((data["source"], data["q"], data["place"]), ("browser", "red umbrella", "mech-parking"))
+        response = self.voice("retrace", None, transcript="", audio=b"")[0]
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(self.voice("sing", None, transcript="hello")[0].status_code, 400)
+
+    def test_hinglish_and_kanglish_without_a_model(self):
+        found = parse_report_rules("Mujhe computer lab Mein Ek key Mili Hai")
+        self.assertEqual((found["title"], found["status"], found["category"]), ("Key", "Found", "Keys"))
+        lost = parse_report_rules("mera black wallet canteen mein kho gaya")
+        self.assertEqual((lost["title"], lost["status"]), ("Black wallet", "Lost"))
+        self.assertEqual(parse_report_rules("nanna bottle library alli kaledu hoyitu")["title"], "Bottle")
+
     def test_desk_columns_are_added_to_an_older_database(self):
         """A database from before the desk gets its columns, and found items count as held."""
         with app.app_context():
