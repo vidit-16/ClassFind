@@ -1277,6 +1277,8 @@ def parse_report_rules(text):
 # OpenAI-compatible chat endpoints that can fill the report form. Whichever key
 # is set decides the provider; LLM_MODEL overrides the default model.
 LLM_PROVIDERS = (
+    ("GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+     "gemini-2.5-flash"),
     ("CEREBRAS_API_KEY", "https://api.cerebras.ai/v1/chat/completions", "llama-3.3-70b"),
     ("GROQ_API_KEY", "https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile"),
 )
@@ -1292,7 +1294,7 @@ def llm_provider():
 
 
 def parse_report_with_model(text):
-    """Ask an LLM on Cerebras or Groq to fill the form. Returns None without a key or on any failure."""
+    """Ask an LLM on Gemini, Cerebras or Groq to fill the form. Returns None without a key or on any failure."""
     provider = llm_provider()
     if not provider:
         return None

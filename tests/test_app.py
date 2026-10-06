@@ -775,8 +775,10 @@ class ClassFindTestCase(unittest.TestCase):
         reply = mock.MagicMock()
         reply.__enter__.return_value.read.return_value = json.dumps({"choices": [{"message": {
             "content": '```json\n{"title": "Keys", "status": "Lost"}\n```'}}]}).encode()
-        for key_name, host in (("CEREBRAS_API_KEY", "api.cerebras.ai"), ("GROQ_API_KEY", "api.groq.com")):
-            for name in ("CEREBRAS_API_KEY", "GROQ_API_KEY"):
+        names = ("GEMINI_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY")
+        for key_name, host in (("GEMINI_API_KEY", "generativelanguage.googleapis.com"),
+                               ("CEREBRAS_API_KEY", "api.cerebras.ai"), ("GROQ_API_KEY", "api.groq.com")):
+            for name in names:
                 os.environ.pop(name, None)
             os.environ[key_name] = "test-key"
             self.addCleanup(os.environ.pop, key_name, None)
@@ -785,8 +787,8 @@ class ClassFindTestCase(unittest.TestCase):
             request_ = opened.call_args.args[0]
             self.assertIn(host, request_.full_url)
             self.assertEqual(request_.get_header("User-agent"), "ClassFind/2.0")
-        os.environ.pop("GROQ_API_KEY", None)
-        os.environ.pop("CEREBRAS_API_KEY", None)
+        for name in names:
+            os.environ.pop(name, None)
         self.assertIsNone(parse_report_with_model("lost keys"))
 
     def test_admin_dashboard_and_delete(self):

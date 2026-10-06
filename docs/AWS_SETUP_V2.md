@@ -9,7 +9,7 @@ it: each feature stays off until its setting is in place.
 | Email alerts | Amazon SES | `SES_SENDER` |
 | Photo labels in matching | Amazon Rekognition | `PHOTO_LABELS=true` |
 | Thumbnails on the home page | AWS Lambda + S3 trigger | `THUMBNAILS=true` |
-| One-sentence reports | Cerebras or Groq (not AWS) | `CEREBRAS_API_KEY` or `GROQ_API_KEY` |
+| One-sentence reports | Gemini, Cerebras or Groq (not AWS) | `GEMINI_API_KEY`, `CEREBRAS_API_KEY` or `GROQ_API_KEY` |
 | Site-down email | CloudWatch alarm + SNS | none, it watches from outside |
 
 ## 1. Let the server use Rekognition, SES and the thumbnails
@@ -90,7 +90,7 @@ and logging → Environment properties**, add:
 | `SES_SENDER` | the verified sender address |
 | `PHOTO_LABELS` | `true` |
 | `THUMBNAILS` | `true` |
-| `CEREBRAS_API_KEY` | your key from cloud.cerebras.ai (or `GROQ_API_KEY` from console.groq.com) |
+| `GEMINI_API_KEY` | your key from aistudio.google.com (or `CEREBRAS_API_KEY` / `GROQ_API_KEY`) |
 | `STAFF_EMAILS` | desk staff addresses, comma separated |
 
 Apply, wait for the environment to turn green, and open `/health`.
