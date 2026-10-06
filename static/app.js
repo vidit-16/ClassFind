@@ -38,6 +38,12 @@ async function shrinkImage(file) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  // Chart bar widths come from data attributes, because the security policy
+  // does not allow inline style attributes.
+  document.querySelectorAll("[data-width]").forEach((bar) => {
+    bar.style.width = `${Math.max(0, Math.min(100, Number(bar.dataset.width) || 0))}%`;
+  });
+
   document.querySelectorAll(".flash").forEach((flash) => {
     window.setTimeout(() => {
       flash.style.transition = "opacity .35s ease";

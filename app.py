@@ -1443,6 +1443,69 @@ def matches():
     return render_template("matches.html", pairs=cached_matches())
 
 
+def dashboard_insights(weeks=8, now=None):
+    """Numbers for the admin charts, computed from reports and the custody log.
+
+    Kept to plain counts so every figure can be checked against the database:
+    reports per week split into lost and found, the busiest categories and
+    locations, how many found items reached their owner, where found items are
+    now, and the median time from reaching the desk to being collected.
+    """
+    now = now or datetime.utcnow()
+    start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    start -= timedelta(weeks=weeks - 1)
+    items = Item.query.filter(Item.created_at >= start).all()
+
+    weekly = []
+    for index in range(weeks):
+        week_start = start + timedelta(weeks=index)
+        week_end = week_start + timedelta(weeks=1)
+        in_week = [i for i in items if week_start <= i.created_at < week_end]
+        # A resolved report started as lost or found; its custody tells which.
+        found = sum(1 for i in in_week if i.status == "Found" or i.custody)
+        weekly.append({"label": week_start.strftime("%d %b"), "lost": len(in_week) - found, "found": found})
+
+    def top(column, limit):
+        rows = (db.session.query(column, db.func.count(Item.id))
+                .group_by(column).order_by(db.func.count(Item.id).desc(), column).limit(limit).all())
+        return [{"label": label, "count": count} for label, count in rows]
+
+    custody_counts = dict(
+        db.session.query(Item.custody, db.func.count(Item.id))
+        .filter(Item.custody.isnot(None)).group_by(Item.custody).all()
+    )
+    found_total = sum(custody_counts.values())
+    returned = custody_counts.get("released", 0)
+
+    hours = []
+    for claim in Claim.query.filter_by(status="Collected").all():
+        received = next((e.created_at for e in claim.item.events
+                         if e.action.startswith(("Received at", "Logged at"))), None)
+        if received and claim.collected_at:
+            hours.append((claim.collected_at - received).total_seconds() / 3600)
+    hours.sort()
+    median_hours = None
+    if hours:
+        middle = len(hours) // 2
+        median_hours = hours[middle] if len(hours) % 2 else (hours[middle - 1] + hours[middle]) / 2
+
+    return {
+        "weekly": weekly,
+        "weekly_max": max([w["lost"] + w["found"] for w in weekly] + [1]),
+        "categories": top(Item.category, 6),
+        "locations": top(Item.location, 6),
+        "custody": [
+            {"key": key, "label": label, "count": custody_counts.get(key, 0)}
+            for key, label in (("awaiting", "Awaiting drop-off"), ("held", "At the desk"),
+                               ("office", "Admin office"), ("released", "Returned"))
+        ],
+        "found_total": found_total,
+        "returned": returned,
+        "return_rate": round(100 * returned / found_total) if found_total else 0,
+        "median_hours": median_hours,
+    }
+
+
 @app.route("/admin")
 @admin_required
 def admin_dashboard():
@@ -1481,6 +1544,7 @@ def admin_dashboard():
         items=items,
         user_count=User.query.count(),
         users=User.query.order_by(User.created_at.desc()).limit(50).all(),
+        insights=dashboard_insights(),
         pending_claims=Claim.query.filter_by(status="Pending").count(),
         query=query,
         selected_status=status,
