@@ -1,0 +1,55 @@
+{# The BIT campus, drawn from static/campus.json. map.js adds the pins, the live updates and Retrace. #}
+{% set vb = campus_map.viewBox %}
+<svg class="campus-svg" viewBox="{{ vb|join(' ') }}" data-viewbox="{{ vb|join(' ') }}" role="img"
+     aria-labelledby="campus-map-title" preserveAspectRatio="xMidYMid meet">
+  <title id="campus-map-title">Map of the BIT campus with the number of open reports at each place</title>
+  <rect class="map-ground" x="{{ vb[0] }}" y="{{ vb[1] }}" width="{{ vb[2] }}" height="{{ vb[3] }}"/>
+  <g class="map-roads">
+    {% for road in campus_map.roads %}<path class="road" d="{{ road.path }}"/>{% endfor %}
+  </g>
+  <g class="map-road-hits">
+    {% for road in campus_map.roads %}<path class="road-hit" d="{{ road.path }}" data-road="{{ road.id }}"><title>{{ road.name }}</title></path>{% endfor %}
+  </g>
+  <g class="map-route" aria-hidden="true"></g>
+  <g class="map-entrances" aria-hidden="true">
+    {% for tail, head in campus_map.entrances %}<path class="entrance" d="M{{ tail|join(',') }} L{{ head|join(',') }}"/>{% endfor %}
+  </g>
+  <g class="map-shadows" aria-hidden="true">
+    {% for place in campus_map.places %}<polygon class="place-shadow" points="{{ place.points }}"/>{% endfor %}
+  </g>
+  <g class="map-places">
+    {% for place in campus_map.places %}
+    {% set counts = map_data.places.get(place.id, {}) %}
+    {% set box = place.box %}
+    <g class="place kind-{{ place.kind }}{% if place.id == selected_place %} selected{% endif %}" data-place="{{ place.id }}"
+       tabindex="0" role="button" aria-label="{{ place.name }}{% if counts.found %}, {{ counts.found }} found{% endif %}{% if counts.lost %}, {{ counts.lost }} lost{% endif %}">
+      <title>{{ place.name }}</title>
+      <polygon class="place-shape" points="{{ place.points }}"/>
+      <polygon class="place-heat" points="{{ place.points }}" data-recent="{{ counts.recent or 0 }}"/>
+      {% if place.wide %}<text class="place-label" x="{{ (box[0] + box[2]) / 2 }}" y="{{ (box[1] + box[3]) / 2 + 5 }}">{{ place.short }}</text>{% endif %}
+    </g>
+    {% endfor %}
+  </g>
+  <g class="map-badges" aria-hidden="true">
+    {% for place in campus_map.places %}
+    {% set counts = map_data.places.get(place.id, {}) %}
+    {% set box = place.box %}
+    <g class="badge{% if not counts.found and not counts.lost %} empty{% endif %}" data-badge="{{ place.id }}"
+       transform="translate({{ place.corner[0] - 2 }},{{ place.corner[1] + 2 }})">
+      <circle class="badge-dot" r="12"/>
+      <text class="badge-count" y="4.5">{{ counts.found or 0 }}</text>
+      <circle class="badge-lost" cx="10" cy="-10" r="4.5"{% if not counts.lost %} hidden{% endif %}/>
+    </g>
+    {% endfor %}
+  </g>
+  {% set desk = campus_map.desk.point %}
+  <g class="map-desk" transform="translate({{ desk|join(',') }})">
+    <circle class="desk-pulse" r="14"/>
+    <circle class="desk-dot" r="8"/>
+    <g class="desk-tag" transform="translate(-58,16)">
+      <rect width="116" height="28" rx="14"/>
+      <text x="58" y="18"><tspan class="desk-count">{{ map_data.desk }}</tspan> at the desk</text>
+    </g>
+  </g>
+  <g class="map-pins"></g>
+</svg>
