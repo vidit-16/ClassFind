@@ -2,6 +2,9 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest import mock
+
+from botocore.exceptions import ClientError
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -9,6 +12,7 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret"
 
 from app import (
+    send_email,
     dashboard_insights,
     clean_parsed_report,
     escalate_unclaimed_valuables,
@@ -627,6 +631,88 @@ class ClassFindTestCase(unittest.TestCase):
         title = page.split(b"<title>", 1)[1].split(b"</title>", 1)[0]
         self.assertNotIn(b"ACCOUNTS", title)
         self.assertIn(b"Security desk staff", page.split(b"</title>", 1)[1])
+
+    def test_approval_rejection_and_collection_are_emailed(self):
+        item_id = self.found_item()
+        self.register("Owner", "owner@example.com")
+        self.claim(item_id)
+        self.logout()
+        self.register_staff()
+        with app.app_context():
+            claim_id = Claim.query.one().id
+        with mock.patch("app.send_email") as sent:
+            self.post(f"/desk/item/{item_id}/received", follow_redirects=True)
+            self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
+            code = self.code_for(claim_id)
+            self.post("/desk/handover", data={"code": code}, follow_redirects=True)
+        recipients = [call.args[0] for call in sent.call_args_list]
+        self.assertEqual(recipients, ["finder@example.com", "owner@example.com", "owner@example.com"])
+        approval = sent.call_args_list[1].args
+        self.assertIn(f"{code[:3]} {code[3:]}", approval[2])
+        self.assertIn("approved", approval[1])
+
+    def test_email_is_skipped_without_a_sender_and_survives_aws_errors(self):
+        os.environ.pop("SES_SENDER", None)
+        self.assertFalse(send_email("a@example.com", "Hi", "Body"))
+
+        os.environ["SES_SENDER"] = "desk@example.com"
+        self.addCleanup(os.environ.pop, "SES_SENDER", None)
+        failing = mock.Mock()
+        failing.send_email.side_effect = ClientError({"Error": {"Code": "MessageRejected"}}, "SendEmail")
+        with mock.patch("app.aws_client", return_value=failing):
+            self.assertFalse(send_email("a@example.com", "Hi", "Body"))
+        working = mock.Mock()
+        with mock.patch("app.aws_client", return_value=working):
+            self.assertTrue(send_email("a@example.com", "Hi", "Body"))
+        self.assertEqual(working.send_email.call_args.kwargs["Source"], "ClassFind <desk@example.com>")
+
+    def test_a_new_found_item_alerts_the_owner_of_a_matching_lost_report(self):
+        self.register("Owner", "owner@example.com")
+        self.report("Black leather wallet", "Black leather wallet with my student ID",
+                    "Wallet & ID", "Library", "Lost")
+        self.logout()
+        self.register("Finder", "finder@example.com")
+        with mock.patch("app.send_email") as sent:
+            self.report("Black leather wallet", "Black leather wallet with a student ID inside",
+                        "Wallet & ID", "Library", "Found")
+        self.assertEqual(sent.call_count, 1)
+        self.assertEqual(sent.call_args.args[0], "owner@example.com")
+        self.assertIn("may be your Black leather wallet", sent.call_args.args[1])
+
+    def test_photo_labels_are_saved_shown_and_used_in_matching(self):
+        os.environ["PHOTO_LABELS"] = "true"
+        self.addCleanup(os.environ.pop, "PHOTO_LABELS", None)
+        rekognition = mock.Mock()
+        rekognition.detect_labels.return_value = {"Labels": [
+            {"Name": "Bottle"}, {"Name": "Indoors"}, {"Name": "Shaker"}]}
+        self.register()
+        with mock.patch("app.aws_client", return_value=rekognition):
+            for title, status in (("Steel thing", "Lost"), ("Metal item", "Found")):
+                self.post("/report", data={
+                    "title": title, "description": "Grey and heavy", "category": "Other",
+                    "location": "Gym", "status": status,
+                    "image_file": (BytesIO(b"fake-image-data"), "photo.png"),
+                }, content_type="multipart/form-data", follow_redirects=True)
+        with app.app_context():
+            lost = Item.query.filter_by(title="Steel thing").one()
+            self.assertEqual(lost.image_labels, "Bottle,Shaker")
+            reasons = [r for l, f, s, r in build_matches() if l.title == "Steel thing"][0]
+        self.assertIn("photos show: bottle, shaker", reasons)
+        page = self.client.get(f"/item/{lost.id}").data
+        self.assertIn(b"In the photo", page)
+        self.assertIn(b"Shaker", page)
+
+    def test_photo_labels_stay_off_without_the_setting(self):
+        os.environ.pop("PHOTO_LABELS", None)
+        rekognition = mock.Mock()
+        self.register()
+        with mock.patch("app.aws_client", return_value=rekognition):
+            self.post("/report", data={
+                "title": "Bottle", "description": "Blue bottle", "category": "Other",
+                "location": "Gym", "status": "Lost",
+                "image_file": (BytesIO(b"fake-image-data"), "photo.png"),
+            }, content_type="multipart/form-data", follow_redirects=True)
+        rekognition.detect_labels.assert_not_called()
 
     def test_admin_dashboard_and_delete(self):
         self.register_admin()

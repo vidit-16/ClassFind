@@ -14,7 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
@@ -252,6 +252,8 @@ class Item(db.Model):
     # access rule. Rows created before this column exists carry NULL and fall
     # back to that comparison; see backfill_item_owners().
     owner_id = db.Column(db.Integer, db.ForeignKey("user.id"), index=True)
+    # What Rekognition saw in the photo, comma separated, e.g. "Bottle,Shaker".
+    image_labels = db.Column(db.String(300))
     # Where a found item physically is: awaiting drop-off at the security desk,
     # held there, or released to its owner. Empty for lost reports.
     custody = db.Column(db.String(20))
@@ -269,6 +271,10 @@ class Item(db.Model):
     @property
     def custody_label(self):
         return CUSTODY_LABELS.get(self.custody, "")
+
+    @property
+    def label_list(self):
+        return [label for label in (self.image_labels or "").split(",") if label]
 
     @property
     def image_src(self):
@@ -409,7 +415,7 @@ def add_desk_columns():
     inspector = db.inspect(db.engine)
     wanted = {
         "user": {"is_staff": "BOOLEAN NOT NULL DEFAULT FALSE"},
-        "item": {"custody": "VARCHAR(20)"},
+        "item": {"custody": "VARCHAR(20)", "image_labels": "VARCHAR(300)"},
         "claim": {
             "handover_code": "VARCHAR(6)",
             "code_expires_at": "TIMESTAMP",
@@ -444,6 +450,66 @@ if not app.config["S3_BUCKET"]:
     Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
 
 s3_client = boto3.client("s3", region_name=app.config["AWS_REGION"]) if app.config["S3_BUCKET"] else None
+_aws_clients = {}
+
+
+def aws_client(service):
+    """One boto3 client per service, made on first use so tests and local runs never need AWS."""
+    if service not in _aws_clients:
+        _aws_clients[service] = boto3.client(service, region_name=app.config["AWS_REGION"])
+    return _aws_clients[service]
+
+
+def send_email(to, subject, body):
+    """Send a plain-text email through Amazon SES from SES_SENDER.
+
+    Email is a courtesy: everything it says is also on the site, so a missing
+    sender, an unverified address in the SES sandbox, or an AWS error is logged
+    and the request carries on. Returns whether SES accepted the message.
+    """
+    sender = os.getenv("SES_SENDER", "").strip()
+    if not sender or not to:
+        return False
+    try:
+        aws_client("ses").send_email(
+            Source=f"ClassFind <{sender}>",
+            Destination={"ToAddresses": [to]},
+            Message={
+                "Subject": {"Data": subject, "Charset": "UTF-8"},
+                "Body": {"Text": {"Data": body + "\n\n- ClassFind, BIT campus lost and found", "Charset": "UTF-8"}},
+            },
+        )
+        return True
+    except (ClientError, BotoCoreError):
+        app.logger.warning("SES could not send %r to %s", subject, to)
+        return False
+
+
+# Labels too generic to tell two items apart.
+GENERIC_LABELS = {"Text", "Person", "Human", "Indoors", "Room", "Floor", "Table", "Furniture",
+                  "Wood", "Pattern", "Background", "Photography", "Adult", "Male", "Female", "Man", "Woman"}
+
+
+def photo_labels(file_storage):
+    """Ask Amazon Rekognition what is in an uploaded photo. Returns up to six labels.
+
+    Runs only with PHOTO_LABELS on. The stream is rewound afterwards so the
+    upload that follows still has the whole file.
+    """
+    if not env_flag("PHOTO_LABELS") or not file_storage or not file_storage.filename:
+        return []
+    data = file_storage.stream.read()
+    file_storage.stream.seek(0)
+    if not data or len(data) > 5 * 1024 * 1024:
+        return []
+    try:
+        response = aws_client("rekognition").detect_labels(
+            Image={"Bytes": data}, MaxLabels=15, MinConfidence=75)
+    except (ClientError, BotoCoreError):
+        app.logger.warning("Rekognition could not label the photo")
+        return []
+    labels = [label["Name"] for label in response.get("Labels", []) if label["Name"] not in GENERIC_LABELS]
+    return labels[:6]
 
 
 def get_current_user():
@@ -826,7 +892,9 @@ def report():
             return render_template("report.html")
 
         uploaded_url = None
+        labels = []
         if request.files.get("image_file"):
+            labels = photo_labels(request.files["image_file"])
             try:
                 uploaded_url = save_uploaded_image(request.files["image_file"])
             except ValueError as exc:
@@ -843,6 +911,7 @@ def report():
             contact=user.email,
             owner_id=user.id,
             image_url=uploaded_url,
+            image_labels=",".join(labels) or None,
         )
         db.session.add(item)
         if status == "Found":
@@ -854,6 +923,8 @@ def report():
                 item.custody = "awaiting"
                 log_custody(item, "Reported found; awaiting drop-off at the security desk", user)
         db.session.commit()
+        if status == "Found":
+            alert_possible_owners(item)
         if item.custody == "awaiting":
             flash("Report added. Please hand the item in at the security desk.", "success")
         else:
@@ -909,8 +980,10 @@ def edit_item(item_id):
         if request.form.get("remove_image") == "1":
             delete_image(item.image_url)
             item.image_url = None
+            item.image_labels = None
 
         if request.files.get("image_file"):
+            labels = photo_labels(request.files["image_file"])
             try:
                 new_url = save_uploaded_image(request.files["image_file"])
             except ValueError as exc:
@@ -918,6 +991,7 @@ def edit_item(item_id):
                 return render_template("edit.html", item=item)
             delete_image(item.image_url)
             item.image_url = new_url
+            item.image_labels = ",".join(labels) or None
 
         db.session.commit()
         # An edit changes neither the counts nor the newest date the cache key
@@ -1042,8 +1116,21 @@ def accept_claim(claim_id):
     log_custody(claim.item, f"Claim by {claim.claimant.name} approved; collection code issued",
                 get_current_user())
     db.session.commit()
+    email_collection_code(claim)
     flash("Claim approved. The owner now has a collection code.", "success")
     return redirect(url_for("desk"))
+
+
+def email_collection_code(claim):
+    send_email(
+        claim.claimant.email,
+        f"Your claim for {claim.item.title} is approved",
+        f"Hi {claim.claimant.name},\n\nThe security desk approved your claim for "
+        f"\"{claim.item.title}\".\n\nYour collection code is {claim.handover_code[:3]} {claim.handover_code[3:]}"
+        f" and it is valid until {claim.code_expires_at.strftime('%d %b, %I:%M %p')} UTC.\n\n"
+        "Bring this code and your college ID to the security desk to collect it. "
+        "Don't share the code with anyone.",
+    )
 
 
 def issue_handover_code(claim):
@@ -1086,6 +1173,13 @@ def reject_claim(claim_id):
     claim.handover_code = None
     log_custody(claim.item, f"Claim by {claim.claimant.name} rejected", get_current_user())
     db.session.commit()
+    send_email(
+        claim.claimant.email,
+        f"Update on your claim for {claim.item.title}",
+        f"Hi {claim.claimant.name},\n\nThe security desk could not approve your claim for "
+        f"\"{claim.item.title}\". If it is yours, visit the desk with more proof, such as a "
+        "receipt, a serial number or a photo of you with it.",
+    )
     flash("Claim rejected.", "success")
     return redirect(url_for("desk"))
 
@@ -1200,6 +1294,28 @@ def parse_report():
     return {"fields": clean_parsed_report(parsed, text), "source": "model" if parsed else "rules"}
 
 
+ALERT_SCORE = 50
+
+
+def alert_possible_owners(found):
+    """Email the people whose lost reports look like this newly found item."""
+    for lost, matched, score, reasons in build_matches():
+        if matched.id != found.id or score < ALERT_SCORE:
+            continue
+        owner = db.session.get(User, lost.owner_id) if lost.owner_id else None
+        if not owner:
+            continue
+        send_email(
+            owner.email,
+            f"A found item may be your {lost.title}",
+            f"Hi {owner.name},\n\nSomeone reported a found item that matches your lost report "
+            f"\"{lost.title}\" ({score}% match: {', '.join(reasons)}).\n\n"
+            f"Found item: {found.title}, near {found.location}.\n"
+            f"{url_for('item_detail', item_id=found.id, _external=True)}\n\n"
+            "If it's yours, open the link and submit a claim.",
+        )
+
+
 @app.route("/desk")
 @staff_required
 def desk():
@@ -1224,6 +1340,14 @@ def desk_receive(item_id):
     item.custody = "held"
     log_custody(item, "Received at the security desk", get_current_user())
     db.session.commit()
+    finder = db.session.get(User, item.owner_id) if item.owner_id else None
+    if finder:
+        send_email(
+            finder.email,
+            f"Thanks for handing in {item.title}",
+            f"Hi {finder.name},\n\nThe security desk has received \"{item.title}\". "
+            "We'll take it from here. Thank you for returning it.",
+        )
     flash(f"{item.title} is now held at the desk.", "success")
     return redirect(url_for("desk"))
 
@@ -1238,6 +1362,7 @@ def reissue_code(claim_id):
     issue_handover_code(claim)
     log_custody(claim.item, f"New collection code issued to {claim.claimant.name}", get_current_user())
     db.session.commit()
+    email_collection_code(claim)
     flash("A new collection code was issued.", "success")
     return redirect(url_for("desk"))
 
@@ -1285,6 +1410,13 @@ def desk_handover():
         other.handover_code = None
     log_custody(claim.item, f"Released to {claim.claimant.name} ({claim.claimant.email})", staff)
     db.session.commit()
+    send_email(
+        claim.claimant.email,
+        f"You collected {claim.item.title}",
+        f"Hi {claim.claimant.name},\n\n\"{claim.item.title}\" was released to you at the security desk "
+        f"by {staff.name} on {claim.collected_at.strftime('%d %b %Y, %I:%M %p')} UTC. "
+        "If you did not collect it, tell the security desk straight away.",
+    )
     flash(f"Released {claim.item.title} to {claim.claimant.name}.", "success")
     return redirect(url_for("desk"))
 
@@ -1357,6 +1489,7 @@ def build_matches():
                 tokens(item.location),
                 item.title.lower(),
                 item.category.lower(),
+                {label.lower() for label in item.label_list},
             )
             for item in items
         ]
@@ -1364,12 +1497,12 @@ def build_matches():
     lost_prepared = prepared(lost_items)
     pairs = []
 
-    for found, found_text, found_location, found_title, found_category in prepared(found_items):
+    for found, found_text, found_location, found_title, found_category, found_labels in prepared(found_items):
         # One matcher per found title: its index of that string is built once
         # and reused against every lost title.
         matcher = SequenceMatcher(None, "", found_title)
 
-        for lost, lost_text, lost_location, lost_title, lost_category in lost_prepared:
+        for lost, lost_text, lost_location, lost_title, lost_category, lost_labels in lost_prepared:
             text_score = overlap(lost_text, found_text)
             location_score = overlap(lost_location, found_location)
             days_apart = abs((lost.created_at - found.created_at).total_seconds()) / 86400
@@ -1382,6 +1515,10 @@ def build_matches():
                 + recency_score * 0.10
                 + (0.10 if same_category else 0.0)
             )
+            # Two photos Rekognition describes the same way add up to 0.10 more.
+            shared_labels = lost_labels & found_labels
+            if shared_labels:
+                score += 0.10 * overlap(lost_labels, found_labels)
 
             matcher.set_seq1(lost_title)
             if score + TITLE_WEIGHT * matcher.real_quick_ratio() < MATCH_THRESHOLD:
@@ -1398,6 +1535,8 @@ def build_matches():
                 reasons.append("same category")
             if location_score > 0:
                 reasons.append("similar location")
+            if shared_labels:
+                reasons.append(f"photos show: {', '.join(sorted(shared_labels)[:3])}")
             if recency_score >= 0.75:
                 reasons.append("reported close together")
             shared = sorted(lost_text & found_text)
