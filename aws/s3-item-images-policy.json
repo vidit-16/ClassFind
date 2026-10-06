@@ -10,6 +10,15 @@
         "s3:DeleteObject"
       ],
       "Resource": "arn:aws:s3:::REPLACE_WITH_CLASSFIND_BUCKET/items/*"
+    },
+    {
+      "Sid": "ClassFindThumbnails",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::REPLACE_WITH_CLASSFIND_BUCKET/thumbs/*"
     }
   ]
 }

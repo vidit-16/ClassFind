@@ -115,7 +115,7 @@
 {% for item in items %}
 <article class="item-card" data-item-card>
   <div class="item-visual">
-    {% if item.image_src %}<img loading="lazy" src="{{ item.image_src }}" alt="{{ item.title }}">{% else %}<span>{{ item.category[:1].upper() }}</span>{% endif %}
+    {% if item.image_src %}<img loading="lazy" src="{{ item.thumb_src or item.image_src }}" data-fallback="{{ item.image_src }}" alt="{{ item.title }}">{% else %}<span>{{ item.category[:1].upper() }}</span>{% endif %}
     <span class="status-pill {{ item.status_class }}">{{ item.status }}</span>
     {% if item.custody in ("held", "office") %}<span class="desk-chip">At the desk</span>{% endif %}
   </div>

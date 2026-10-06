@@ -37,6 +37,14 @@ async function shrinkImage(file) {
   }
 }
 
+// A thumbnail that is not ready yet falls back to the full photo.
+document.addEventListener("error", (event) => {
+  const image = event.target;
+  if (image.tagName === "IMG" && image.dataset.fallback && image.src !== image.dataset.fallback) {
+    image.src = image.dataset.fallback;
+  }
+}, true);
+
 document.addEventListener("DOMContentLoaded", () => {
   // Chart bar widths come from data attributes, because the security policy
   // does not allow inline style attributes.

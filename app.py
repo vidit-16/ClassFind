@@ -292,6 +292,21 @@ class Item(db.Model):
         return self.image_url
 
     @property
+    def thumb_src(self):
+        """The Lambda-made thumbnail of an S3 photo, when THUMBNAILS is on.
+
+        The page falls back to the full photo if the thumbnail is not there yet.
+        """
+        if not env_flag("THUMBNAILS") or not (self.image_url or "").startswith("s3://"):
+            return None
+        bucket, key = self.image_url[5:].split("/", 1)
+        return s3_client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": "thumbs/" + key.rsplit(".", 1)[0] + ".jpg"},
+            ExpiresIn=3600,
+        )
+
+    @property
     def status_class(self):
         return {
             "Lost": "status-lost",
@@ -697,6 +712,11 @@ def delete_image(image_url):
             s3_client.delete_object(Bucket=bucket, Key=key)
         except ClientError:
             app.logger.exception("S3 delete failed")
+        if env_flag("THUMBNAILS"):
+            try:
+                s3_client.delete_object(Bucket=bucket, Key="thumbs/" + key.rsplit(".", 1)[0] + ".jpg")
+            except ClientError:
+                app.logger.warning("Thumbnail delete failed")
         return
 
     prefix = "/static/uploads/"
