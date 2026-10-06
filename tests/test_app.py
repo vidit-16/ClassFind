@@ -8,6 +8,7 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret"
 
 from app import (
+    _rate_hits,
     MATCH_THRESHOLD,
     PAGE_SIZE,
     Claim,
@@ -25,7 +26,7 @@ from app import (
 
 class ClassFindTestCase(unittest.TestCase):
     def setUp(self):
-        app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
+        app.config.update(TESTING=True, WTF_CSRF_ENABLED=False, RATE_LIMITS_ENABLED=False)
         self.upload_dir = tempfile.mkdtemp()
         app.config["UPLOAD_FOLDER"] = self.upload_dir
         self.client = app.test_client()
@@ -127,6 +128,33 @@ class ClassFindTestCase(unittest.TestCase):
         response = self.client.get("/login", headers={"X-Forwarded-Proto": "https"})
         self.assertEqual(response.status_code, 200)
         self.assertIn("Strict-Transport-Security", response.headers)
+
+    def enable_rate_limits(self):
+        app.config["RATE_LIMITS_ENABLED"] = True
+        _rate_hits.clear()
+        self.addCleanup(app.config.update, RATE_LIMITS_ENABLED=False)
+        self.addCleanup(_rate_hits.clear)
+
+    def test_repeated_failed_logins_are_limited(self):
+        self.enable_rate_limits()
+        bad = {"email": "nobody@example.com", "password": "wrong"}
+        for _ in range(10):
+            self.assertEqual(self.post("/login", data=bad).status_code, 200)
+        response = self.post("/login", data=bad)
+        self.assertEqual(response.status_code, 429)
+        self.assertIn(b"Too many attempts", response.data)
+        # Viewing the page is not a POST, so it is never limited.
+        self.assertEqual(self.client.get("/login").status_code, 200)
+
+    def test_rate_limits_are_counted_per_client_address(self):
+        self.enable_rate_limits()
+        bad = {"email": "nobody@example.com", "password": "wrong"}
+        for _ in range(10):
+            self.post("/login", data=bad, headers={"X-Forwarded-For": "10.0.0.1"})
+        limited = self.post("/login", data=bad, headers={"X-Forwarded-For": "10.0.0.1"})
+        other = self.post("/login", data=bad, headers={"X-Forwarded-For": "10.0.0.2"})
+        self.assertEqual(limited.status_code, 429)
+        self.assertEqual(other.status_code, 200)
 
     def test_http_is_served_when_force_https_is_off(self):
         self.assertFalse(app.config["FORCE_HTTPS"])
