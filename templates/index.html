@@ -79,6 +79,7 @@
       <option value="Found" {% if selected_status == "Found" %}selected{% endif %}>Found</option>
       <option value="Resolved" {% if selected_status == "Resolved" %}selected{% endif %}>Resolved</option>
     </select>
+    {% if selected_place %}<input type="hidden" name="place" value="{{ selected_place }}">{% endif %}
     <select name="sort" aria-label="Sort reports">
       <option value="newest" {% if sort_order == "newest" %}selected{% endif %}>Newest first</option>
       <option value="oldest" {% if sort_order == "oldest" %}selected{% endif %}>Oldest first</option>
@@ -103,10 +104,10 @@
     <h2>{{ items|length }} report{% if items|length != 1 %}s{% endif %}{% if query %} matching “{{ query }}”{% endif %}</h2>
   </div>
   <div class="results-tools">
-    {% if selected_status or selected_category %}
-      <span class="active-filter">{% if selected_status %}{{ selected_status }}{% endif %}{% if selected_status and selected_category %} · {% endif %}{% if selected_category %}{{ selected_category }}{% endif %}</span>
+    {% if selected_status or selected_category or selected_place %}
+      <span class="active-filter">{{ [selected_place_name if selected_place else "", selected_status, selected_category]|select|join(" · ") }}</span>
     {% endif %}
-    {% if query or selected_category or selected_status or sort_order != "newest" %}<a class="text-link" href="{{ url_for('index') }}">Clear filters</a>{% endif %}
+    {% if query or selected_category or selected_status or selected_place or sort_order != "newest" %}<a class="text-link" href="{{ url_for('index') }}">Clear filters</a>{% endif %}
   </div>
 </section>
 
