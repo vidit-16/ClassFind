@@ -252,3 +252,15 @@ body::after{content:"";position:fixed;z-index:-1;width:420px;height:420px;right:
   .campus-panel .retrace-results{order:3}
 }
 .retrace-mode .map-badges{opacity:0}
+/* Voice */
+.voice-box{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 14px}
+.mic-button{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:9px 16px 9px 10px;font-weight:700;font-size:13px;cursor:pointer;color:var(--ink)}
+.mic-icon{position:relative;width:26px;height:26px;border-radius:50%;background:var(--accent);flex:none}
+.mic-icon::before{content:"";position:absolute;left:9px;top:5px;width:8px;height:12px;border-radius:5px;background:#fff}
+.mic-icon::after{content:"";position:absolute;left:12px;top:18px;width:2px;height:4px;background:#fff}
+.mic-button.listening{border-color:var(--lost)}.mic-button.listening .mic-icon{background:var(--lost);animation:mic 1.2s ease-in-out infinite}
+@keyframes mic{50%{box-shadow:0 0 0 7px rgba(165,75,66,.18)}}
+.voice-lang{width:auto;padding:8px 10px;font-size:13px;border-radius:999px}
+.voice-heard{flex-basis:100%;margin:0;color:var(--muted);font-size:13px;font-style:italic;min-height:1em}
+.compact-mic{padding:7px 12px 7px 7px}.compact-mic .mic-icon{width:22px;height:22px}.compact-mic .mic-icon::before{left:7px;top:4px;width:8px;height:10px}.compact-mic .mic-icon::after{left:10px;top:15px;height:3px}
+@media(prefers-reduced-motion:reduce){.mic-button.listening .mic-icon{animation:none}}

@@ -657,6 +657,36 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertIn(b'value="Black bottle"', page)
         self.assertIn("value=\"P1 → Canteen\"".encode(), page)
 
+    def test_a_spoken_sentence_becomes_a_retrace_search(self):
+        token = self.csrf_token()
+        response = self.client.post(
+            "/api/retrace/parse",
+            json={"text": "I lost my blue bottle, I was in P1 then the canteen and then mesh parking yesterday"},
+            headers={"X-CSRF-Token": token},
+        )
+        plan = response.get_json()
+        self.assertEqual(plan["source"], "rules")
+        self.assertEqual(plan["item"], "Blue bottle")
+        self.assertEqual(plan["when"], "yesterday")
+        self.assertEqual([stop["ids"] for stop in plan["stops"]],
+                         [["p1"], ["canteen", "puff-shop", "nandini"], ["mech-parking"]])
+
+    def test_a_retrace_plan_from_the_model_is_resolved_to_places(self):
+        reply = {"item": "water bottle", "places": ["Parking one", "the library", "Library"], "when": "week"}
+        with mock.patch("app.parse_report_with_model", return_value=reply):
+            token = self.csrf_token()
+            plan = self.client.post("/api/retrace/parse", json={"text": "ನಾನು ನೀರಿನ ಬಾಟಲ್ ಕಳೆದುಕೊಂಡೆ"},
+                                    headers={"X-CSRF-Token": token}).get_json()
+        self.assertEqual(plan["source"], "model")
+        # The same place said twice in a row is one stop.
+        self.assertEqual([stop["ids"] for stop in plan["stops"]], [["p1"], ["main-block"]])
+        self.assertEqual((plan["item"], plan["when"]), ("water bottle", "week"))
+
+    def test_the_page_may_use_the_microphone(self):
+        policy = self.client.get("/").headers["Permissions-Policy"]
+        self.assertIn("microphone=(self)", policy)
+        self.assertIn("camera=()", policy)
+
     def test_desk_columns_are_added_to_an_older_database(self):
         """A database from before the desk gets its columns, and found items count as held."""
         with app.app_context():

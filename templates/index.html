@@ -20,6 +20,15 @@
 
     <div class="retrace-pane" hidden data-retrace="{{ url_for('retrace') }}" data-report="{{ url_for('report') }}">
       <p class="retrace-help">Tap the places you went, in order. Roads count too. ClassFind walks your route and shows what was found along it.</p>
+      <div class="voice-box" hidden data-parse="{{ url_for('parse_retrace') }}">
+        <button type="button" class="mic-button" aria-pressed="false"><span class="mic-icon" aria-hidden="true"></span><span class="mic-label">Or just say it</span></button>
+        <select class="voice-lang" aria-label="Language you'll speak">
+          <option value="en-IN">English</option>
+          <option value="kn-IN">ಕನ್ನಡ</option>
+          <option value="hi-IN">हिन्दी</option>
+        </select>
+        <p class="voice-heard" aria-live="polite"></p>
+      </div>
       <ol class="retrace-stops" aria-label="Your route"></ol>
       <div class="retrace-when" role="radiogroup" aria-label="Since when">
         <label><input type="radio" name="retrace-since" value="today" checked> Today</label>
@@ -133,4 +142,4 @@
   </div>
 </section>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='map.js') }}"></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='voice.js') }}"></script><script src="{{ url_for('static', filename='map.js') }}"></script>{% endblock %}
