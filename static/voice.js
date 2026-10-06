@@ -3,7 +3,7 @@
 // without choosing a language. Where the browser can caption speech, the words
 // show while you talk and are sent too, as a fallback.
 //
-// Recording keeps going through pauses and stops after a few seconds of
+// Recording keeps going through pauses and stops after five seconds of
 // silence, after half a minute, or when the mic is tapped again.
 (() => {
   const mics = document.querySelectorAll("[data-voice]");
@@ -11,7 +11,7 @@
   const csrf = (document.querySelector("meta[name='csrf-token']") || {}).content || "";
   const Captions = window.SpeechRecognition || window.webkitSpeechRecognition;
   const RATE = 16000;
-  const QUIET_STOP_MS = 3000;
+  const QUIET_STOP_MS = 5000;
   const NO_SPEECH_STOP_MS = 8000;
   const MAX_MS = 30000;
   const SPEAKING_LEVEL = 0.015;
