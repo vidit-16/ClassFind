@@ -10,7 +10,19 @@ from pathlib import Path
 
 CAMPUS = json.loads((Path(__file__).resolve().parent / "static" / "campus.json").read_text(encoding="utf-8"))
 PLACES = {place["id"]: place for place in CAMPUS["places"]}
+for _place in CAMPUS["places"]:
+    _xs = [point[0] for point in _place["outline"]]
+    _ys = [point[1] for point in _place["outline"]]
+    _place["box"] = [min(_xs), min(_ys), max(_xs), max(_ys)]
+    _place["points"] = " ".join(f"{x},{y}" for x, y in _place["outline"])
+    _place["wide"] = _place["kind"] != "small" and max(_xs) - min(_xs) >= 60
+    # The count badge sits on the top-right corner of the top edge, which for the
+    # L-shaped Main Block is not the corner of its bounding box.
+    _top = min(_ys)
+    _place["corner"] = [max(x for x, y in _place["outline"] if y == _top), _top]
 ROADS = {road["id"]: road for road in CAMPUS["roads"]}
+for _road in CAMPUS["roads"]:
+    _road["path"] = "M" + " L".join(f"{x},{y}" for x, y in _road["points"])
 GROUPS = CAMPUS["groups"]
 
 # Before a place, these mean the item was outdoors next to it rather than inside.

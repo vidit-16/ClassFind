@@ -560,6 +560,39 @@ class ClassFindTestCase(unittest.TestCase):
             row = db.session.execute(db.text("SELECT place, place_side FROM item")).one()
             self.assertEqual(tuple(row), ("xerox-canteen", "outside"))
 
+    def test_the_map_feed_counts_open_reports_per_place(self):
+        self.register()
+        self.report("Blue bottle", "Steel", "Accessories", "Mech parking", "Found")
+        self.report("Red cap", "Cotton", "Clothing", "outside the mech parking", "Lost")
+        self.report("Old pen", "Blue", "Stationery", "Hostel", "Lost")
+        with app.app_context():
+            Item.query.filter_by(title="Blue bottle").one().custody = "held"
+            db.session.commit()
+        data = self.client.get("/api/map").get_json()
+        self.assertEqual(data["places"]["mech-parking"]["found"], 1)
+        self.assertEqual(data["places"]["mech-parking"]["lost"], 1)
+        self.assertEqual(data["desk"], 1)
+        self.assertFalse(data["hotspots"])
+        sides = {item["title"]: item["side"] for item in data["items"]}
+        # A report with no place on the map stays in the list but off the map.
+        self.assertEqual(sides, {"Blue bottle": "inside", "Red cap": "outside"})
+
+    def test_returned_items_leave_the_map(self):
+        self.register()
+        self.report("Blue bottle", "Steel", "Accessories", "Mech parking", "Found")
+        with app.app_context():
+            Item.query.one().custody = "released"
+            db.session.commit()
+        self.assertEqual(self.client.get("/api/map").get_json()["items"], [])
+
+    def test_home_page_draws_the_campus_map(self):
+        self.register()
+        self.report("Blue bottle", "Steel", "Accessories", "Mech parking", "Found")
+        page = self.client.get("/").data
+        self.assertIn(b'data-place="main-block"', page)
+        self.assertIn(b'data-badge="mech-parking"', page)
+        self.assertIn(b"map.js", page)
+
     def test_desk_columns_are_added_to_an_older_database(self):
         """A database from before the desk gets its columns, and found items count as held."""
         with app.app_context():
@@ -1000,11 +1033,11 @@ class ClassFindTestCase(unittest.TestCase):
             db.session.commit()
 
         first = self.client.get("/").data
-        self.assertEqual(first.count(b"View report"), PAGE_SIZE)
+        self.assertEqual(first.count(b"class=\"result-row\""), PAGE_SIZE)
         self.assertIn(b"Page 1 of 2", first)
 
         second = self.client.get("/?page=2").data
-        self.assertEqual(second.count(b"View report"), 4)
+        self.assertEqual(second.count(b"class=\"result-row\""), 4)
         self.assertIn(b"Page 2 of 2", second)
 
     def test_a_second_account_cannot_edit_someone_elses_report(self):

@@ -790,6 +790,75 @@ def health():
 
 
 PAGE_SIZE = 24
+# The map shows open reports: lost ones not yet resolved, and found ones not yet
+# returned. Older ones stay searchable but leave the map.
+MAP_ITEM_LIMIT = 400
+MAP_DAYS = 90
+# Below this many reports in the last 30 days, a heat map would only show noise.
+HOTSPOT_MIN_REPORTS = 8
+
+
+def map_summary():
+    """What the campus map draws: counts per place, the desk, and open reports."""
+    since = datetime.utcnow() - timedelta(days=MAP_DAYS)
+    open_items = (
+        Item.query.filter(
+            Item.place.isnot(None),
+            Item.status.in_(("Lost", "Found")),
+            or_(Item.custody.is_(None), Item.custody != "released"),
+            Item.created_at >= since,
+        )
+        .order_by(Item.created_at.desc())
+        .limit(MAP_ITEM_LIMIT)
+        .all()
+    )
+    places = {}
+    for item in open_items:
+        counts = places.setdefault(item.place, {"found": 0, "lost": 0, "recent": 0})
+        counts["found" if item.status == "Found" else "lost"] += 1
+    month = datetime.utcnow() - timedelta(days=30)
+    recent_total = 0
+    for place, count in (
+        db.session.query(Item.place, db.func.count(Item.id))
+        .filter(Item.place.isnot(None), Item.created_at >= month)
+        .group_by(Item.place)
+    ):
+        places.setdefault(place, {"found": 0, "lost": 0, "recent": 0})["recent"] = count
+        recent_total += count
+    desk = Item.query.filter(Item.status == "Found", Item.custody.in_(IN_STORAGE)).count()
+    return {
+        "places": places,
+        "desk": desk,
+        "hotspots": recent_total >= HOTSPOT_MIN_REPORTS,
+        "items": open_items,
+    }
+
+
+@app.get("/api/map")
+def map_feed():
+    """The map's data as JSON. The home page polls this to stay live."""
+    summary = map_summary()
+    items = [
+        {
+            "id": item.id,
+            "title": item.title,
+            "status": item.status,
+            "category": item.category,
+            "place": item.place,
+            "side": item.place_side or "inside",
+            "where": item.location,
+            "custody": item.custody_label if item.status == "Found" else "",
+            "at": item.created_at.isoformat() + "Z",
+            "url": url_for("item_detail", item_id=item.id),
+            "image": item.thumb_src or item.image_src,
+        }
+        for item in summary["items"]
+    ]
+    body = {"places": summary["places"], "desk": summary["desk"], "hotspots": summary["hotspots"],
+            "items": items}
+    response = app.response_class(json.dumps(body), mimetype="application/json")
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/")
@@ -847,6 +916,8 @@ def index():
         selected_status=status,
         selected_place=place,
         selected_place_name=campus.place_short(place) or place.title(),
+        campus_map=campus.CAMPUS,
+        map_data=map_summary(),
         sort_order=sort_order,
     )
 
