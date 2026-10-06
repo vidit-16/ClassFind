@@ -1,5 +1,7 @@
 import os
 import re
+import threading
+import time
 from datetime import datetime
 from hmac import compare_digest
 from secrets import token_urlsafe
@@ -20,9 +22,10 @@ from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 # nginx terminates HTTPS and forwards to Gunicorn over plain HTTP, setting
-# X-Forwarded-Proto. Trusting that one header is what lets request.is_secure,
-# the FORCE_HTTPS redirect and the HSTS header see a request as HTTPS.
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1)
+# X-Forwarded-Proto and X-Forwarded-For. Trusting one hop of each is what lets
+# request.is_secure see HTTPS and request.remote_addr see the student rather
+# than nginx, which the FORCE_HTTPS redirect, HSTS and rate limits rely on.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
 
 def is_production(env=None):
@@ -140,6 +143,48 @@ def protect_csrf():
     supplied = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token")
     if not expected or not supplied or not compare_digest(expected, supplied):
         abort(400, description="Invalid or missing CSRF token.")
+
+
+# POSTs allowed per client address in a window of seconds, by endpoint. Kept in
+# memory, which is enough because Gunicorn runs a single process; a restart
+# simply starts the counts again.
+RATE_LIMITS = {
+    "login": (10, 60),
+    "register": (5, 60 * 60),
+    "report": (20, 60 * 60),
+    "submit_claim": (20, 60 * 60),
+}
+app.config["RATE_LIMITS_ENABLED"] = True
+_rate_hits = {}
+_rate_lock = threading.Lock()
+
+
+@app.before_request
+def rate_limit():
+    """Answer 429 when one address posts to a limited form too often.
+
+    Guards password guessing on sign-in and bulk account or report creation.
+    """
+    if request.method != "POST" or not app.config["RATE_LIMITS_ENABLED"]:
+        return
+    limit = RATE_LIMITS.get(request.endpoint)
+    if not limit:
+        return
+    count, window = limit
+    key = (request.endpoint, request.remote_addr)
+    now = time.monotonic()
+    with _rate_lock:
+        recent = [t for t in _rate_hits.get(key, ()) if now - t < window]
+        if len(recent) >= count:
+            _rate_hits[key] = recent
+            retry_after = int(window - (now - recent[0])) + 1
+            abort(429, description=f"Too many attempts. Try again in {retry_after} seconds.")
+        recent.append(now)
+        _rate_hits[key] = recent
+        # Drop addresses with nothing left in their window so the table stays small.
+        if len(_rate_hits) > 10000:
+            for stale in [k for k, hits in _rate_hits.items() if now - hits[-1] >= RATE_LIMITS[k[0]][1]]:
+                del _rate_hits[stale]
 
 
 @app.after_request
@@ -1041,6 +1086,11 @@ def not_found(_error):
 @app.errorhandler(400)
 def bad_request(error):
     return render_template("400.html", message=getattr(error, "description", "Bad request.")), 400
+
+
+@app.errorhandler(429)
+def too_many_requests(error):
+    return render_template("400.html", message=getattr(error, "description", "Too many attempts.")), 429
 
 
 @app.errorhandler(413)
