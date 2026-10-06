@@ -680,6 +680,9 @@ def edit_item(item_id):
             item.image_url = new_url
 
         db.session.commit()
+        # An edit changes neither the counts nor the newest date the cache key
+        # is built from, so the matches would keep showing the old wording.
+        _match_cache["key"] = None
         flash("Report updated successfully.", "success")
         return redirect(url_for("item_detail", item_id=item.id))
 
@@ -954,7 +957,11 @@ _match_cache = {"key": None, "pairs": []}
 
 
 def matches_cache_key():
-    """Changes whenever a report that matching reads is added, edited or removed."""
+    """Changes whenever a report that matching reads is added, removed or changes status.
+
+    An edit to the wording changes none of these, so edit_item() clears the
+    cache itself.
+    """
     counts = dict(
         db.session.query(Item.status, db.func.count(Item.id))
         .filter(Item.status.in_(("Lost", "Found")))

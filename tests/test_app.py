@@ -613,6 +613,32 @@ class ClassFindTestCase(unittest.TestCase):
         with app.app_context():
             self.assertIsNot(cached_matches(), first)
 
+    def test_editing_a_report_refreshes_the_matches(self):
+        self.register()
+        self.report("Black wallet", "Leather wallet", "Wallet & ID", "Library", "Lost")
+        self.report("Wallet", "Leather wallet found", "Wallet & ID", "Library", "Found")
+
+        with app.app_context():
+            before = cached_matches()
+            self.assertEqual(before[0][0].title, "Black wallet")
+            lost_id = before[0][0].id
+
+        self.post(
+            f"/item/{lost_id}/edit",
+            data={
+                "title": "Brown wallet",
+                "description": "Leather wallet",
+                "category": "Wallet & ID",
+                "location": "Library",
+                "status": "Lost",
+            },
+            follow_redirects=True,
+        )
+        with app.app_context():
+            after = cached_matches()
+            self.assertIsNot(after, before)
+            self.assertEqual(after[0][0].title, "Brown wallet")
+
     def test_login_rejects_bad_password(self):
         self.register()
         self.post("/logout", follow_redirects=True)
