@@ -1,23 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Admin Dashboard — ClassFind
-<section class="results-header">
-  <div><p class="section-kicker">ACCOUNTS</p><h2>Security desk staff</h2></div>
-  <span class="queue-note">Staff receive items, review claims and release items at the desk</span>
-</section>
-<section class="admin-panel">
-  <div class="admin-table">
-    <div class="admin-row admin-head"><span>Account</span><span>Role</span><span>Joined</span><span>Desk access</span></div>
-    {% for user in users %}
-    <div class="admin-row">
-      <span><strong>{{ user.name }}</strong><small>{{ user.email }}</small></span>
-      <span>{% if user.is_admin %}Admin{% elif user.is_staff %}Desk staff{% else %}Student{% endif %}</span>
-      <span>{{ user.created_at.strftime("%d %b %Y") }}</span>
-      <span>{% if not user.is_admin %}<form method="post" action="{{ url_for('toggle_staff', user_id=user.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="inline-action{% if user.is_staff %} danger{% endif %}" type="submit">{{ "Remove desk access" if user.is_staff else "Make desk staff" }}</button></form>{% else %}Always{% endif %}</span>
-    </div>
-    {% endfor %}
-  </div>
-</section>
-{% endblock %}
+{% block title %}Admin Dashboard — ClassFind{% endblock %}
 {% block content %}
 <section class="page-heading admin-heading">
   <div>
@@ -35,6 +17,71 @@
   <a class="stat-card stat-card-link found" href="{{ url_for('admin_dashboard', status='Found') }}"><span>Found</span><strong>{{ stats.found }}</strong><small>Potential claims</small></a>
   <a class="stat-card stat-card-link resolved" href="{{ url_for('admin_dashboard', status='Resolved') }}"><span>Resolved</span><strong>{{ stats.resolved }}</strong><small>Closed reports</small></a>
   <a class="stat-card stat-card-link claim-stat" href="{{ url_for('claims') }}"><span>Pending claims</span><strong>{{ pending_claims }}</strong><small>Review in Claims</small></a>
+</section>
+
+
+<section class="insights">
+  <div class="results-header"><div><p class="section-kicker">INSIGHTS</p><h2>How lost and found is going</h2></div><span class="queue-note">From reports and the custody log</span></div>
+  <div class="insight-grid">
+    <article class="insight-card insight-wide">
+      <h3>Reports per week</h3>
+      {% set w = insights.weekly %}{% set top = insights.weekly_max %}
+      <svg class="chart" viewBox="0 0 640 220" role="img" aria-label="Lost and found reports per week for the last {{ w|length }} weeks">
+        {% for week in w %}
+          {% set x = 30 + loop.index0 * 76 %}
+          {% set lost_h = (week.lost / top * 160)|round(1) %}{% set found_h = (week.found / top * 160)|round(1) %}
+          <rect x="{{ x }}" y="{{ 180 - lost_h }}" width="26" height="{{ lost_h }}" rx="4" class="bar-lost"><title>{{ week.label }}: {{ week.lost }} lost</title></rect>
+          <rect x="{{ x + 30 }}" y="{{ 180 - found_h }}" width="26" height="{{ found_h }}" rx="4" class="bar-found"><title>{{ week.label }}: {{ week.found }} found</title></rect>
+          {% if week.lost %}<text x="{{ x + 13 }}" y="{{ 174 - lost_h }}" class="bar-value">{{ week.lost }}</text>{% endif %}
+          {% if week.found %}<text x="{{ x + 43 }}" y="{{ 174 - found_h }}" class="bar-value">{{ week.found }}</text>{% endif %}
+          <text x="{{ x + 28 }}" y="204" class="axis-label">{{ week.label }}</text>
+        {% endfor %}
+        <line x1="20" y1="180" x2="630" y2="180" class="axis"/>
+      </svg>
+      <div class="legend"><span class="key-lost">Lost</span><span class="key-found">Found</span></div>
+    </article>
+
+    <article class="insight-card">
+      <h3>Returned to owners</h3>
+      {% set rate = insights.return_rate %}{% set dash = (rate * 2.827)|round(1) %}
+      <svg class="donut" viewBox="0 0 120 120" role="img" aria-label="{{ rate }} percent of found items returned">
+        <circle cx="60" cy="60" r="45" class="donut-track"/>
+        {% if rate %}<circle cx="60" cy="60" r="45" class="donut-value" stroke-dasharray="{{ dash }} 282.7" transform="rotate(-90 60 60)"/>{% endif %}
+        <text x="60" y="66" class="donut-label">{{ rate }}%</text>
+      </svg>
+      <p class="insight-note">{{ insights.returned }} of {{ insights.found_total }} found items collected at the desk{% if insights.median_hours is not none %} · median {{ "%.0f"|format(insights.median_hours) }} h from drop-off to collection{% endif %}</p>
+    </article>
+
+    <article class="insight-card">
+      <h3>Where found items are</h3>
+      {% set custody_max = (insights.custody|map(attribute="count")|max) or 1 %}
+      <div class="hbars">
+        {% for row in insights.custody %}
+        <div class="hbar"><span>{{ row.label }}</span><div class="hbar-track"><div class="hbar-fill custody-fill-{{ row.key }}" data-width="{{ (row.count / custody_max * 100)|round|int }}"></div></div><strong>{{ row.count }}</strong></div>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="insight-card">
+      <h3>Most reported categories</h3>
+      {% if insights.categories %}{% set cmax = insights.categories[0].count %}
+      <div class="hbars">
+        {% for row in insights.categories %}
+        <div class="hbar"><span>{{ row.label }}</span><div class="hbar-track"><div class="hbar-fill" data-width="{{ (row.count / cmax * 100)|round|int }}"></div></div><strong>{{ row.count }}</strong></div>
+        {% endfor %}
+      </div>{% else %}<p class="insight-note">No reports yet.</p>{% endif %}
+    </article>
+
+    <article class="insight-card">
+      <h3>Hotspots on campus</h3>
+      {% if insights.locations %}{% set lmax = insights.locations[0].count %}
+      <div class="hbars">
+        {% for row in insights.locations %}
+        <div class="hbar"><span>⌖ {{ row.label }}</span><div class="hbar-track"><div class="hbar-fill hotspot-fill" data-width="{{ (row.count / lmax * 100)|round|int }}"></div></div><strong>{{ row.count }}</strong></div>
+        {% endfor %}
+      </div>{% else %}<p class="insight-note">No reports yet.</p>{% endif %}
+    </article>
+  </div>
 </section>
 
 <section class="admin-toolbar">
@@ -85,4 +132,21 @@
 {% else %}
 <div class="empty-state empty-dashboard"><div class="empty-icon">⌕</div><p class="section-kicker">QUEUE CLEAR</p><h3>No reports match those filters.</h3><p>Reset the filters to view the latest activity.</p><a class="secondary-btn" href="{{ url_for('admin_dashboard') }}">View all reports</a></div>
 {% endif %}
+<section class="results-header">
+  <div><p class="section-kicker">ACCOUNTS</p><h2>Security desk staff</h2></div>
+  <span class="queue-note">Staff receive items, review claims and release items at the desk</span>
+</section>
+<section class="admin-panel">
+  <div class="admin-table">
+    <div class="admin-row admin-head"><span>Account</span><span>Role</span><span>Joined</span><span>Desk access</span></div>
+    {% for user in users %}
+    <div class="admin-row">
+      <span><strong>{{ user.name }}</strong><small>{{ user.email }}</small></span>
+      <span>{% if user.is_admin %}Admin{% elif user.is_staff %}Desk staff{% else %}Student{% endif %}</span>
+      <span>{{ user.created_at.strftime("%d %b %Y") }}</span>
+      <span>{% if not user.is_admin %}<form method="post" action="{{ url_for('toggle_staff', user_id=user.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="inline-action{% if user.is_staff %} danger{% endif %}" type="submit">{{ "Remove desk access" if user.is_staff else "Make desk staff" }}</button></form>{% else %}Always{% endif %}</span>
+    </div>
+    {% endfor %}
+  </div>
+</section>
 {% endblock %}

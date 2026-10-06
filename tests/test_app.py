@@ -9,6 +9,7 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret"
 
 from app import (
+    dashboard_insights,
     clean_parsed_report,
     escalate_unclaimed_valuables,
     parse_report_rules,
@@ -592,6 +593,40 @@ class ClassFindTestCase(unittest.TestCase):
             db.session.commit()
             self.assertEqual(escalate_unclaimed_valuables(), 0)
             self.assertEqual(Item.query.filter_by(custody="office").count(), 0)
+
+    def test_dashboard_insights_count_what_happened(self):
+        item_id = self.found_item("Grey phone", category="Electronics")
+        self.register("Owner", "owner@example.com")
+        self.report("Black wallet", "Leather wallet", "Wallet & ID", "Library", "Lost")
+        self.claim(item_id, "IMEI ends in 4471 and the lock screen is a beach photo.")
+        self.logout()
+        self.register_staff()
+        self.post(f"/desk/item/{item_id}/received", follow_redirects=True)
+        with app.app_context():
+            claim_id = Claim.query.one().id
+        self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
+        self.post("/desk/handover", data={"code": self.code_for(claim_id)}, follow_redirects=True)
+
+        with app.app_context():
+            insights = dashboard_insights()
+        this_week = insights["weekly"][-1]
+        self.assertEqual((this_week["lost"], this_week["found"]), (1, 1))
+        self.assertEqual(insights["found_total"], 1)
+        self.assertEqual(insights["returned"], 1)
+        self.assertEqual(insights["return_rate"], 100)
+        self.assertIsNotNone(insights["median_hours"])
+        self.assertEqual({row["label"] for row in insights["locations"]}, {"Library"})
+        self.assertEqual(dict((r["key"], r["count"]) for r in insights["custody"])["released"], 1)
+
+        self.logout()
+        self.register_admin("admin@example.com")
+        page = self.client.get("/admin").data
+        self.assertIn(b"Reports per week", page)
+        self.assertIn(b"100%", page)
+        self.assertIn(b"Hotspots on campus", page)
+        title = page.split(b"<title>", 1)[1].split(b"</title>", 1)[0]
+        self.assertNotIn(b"ACCOUNTS", title)
+        self.assertIn(b"Security desk staff", page.split(b"</title>", 1)[1])
 
     def test_admin_dashboard_and_delete(self):
         self.register_admin()
