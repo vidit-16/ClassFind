@@ -177,6 +177,18 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  // Print one tag: mark its card, print, then clear the mark.
+  document.querySelectorAll(".print-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest(".tag-card");
+      document.body.classList.add("printing-tag");
+      card.classList.add("print-this");
+      window.print();
+      card.classList.remove("print-this");
+      document.body.classList.remove("printing-tag");
+    });
+  });
+
   document.querySelectorAll("form").forEach((form) => {
     form.addEventListener("submit", () => {
       const submit = form.querySelector('button[type="submit"]');

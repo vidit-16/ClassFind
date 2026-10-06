@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}QR Tags — ClassFind{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div>
+    <div class="hero-topline"><p class="eyebrow">QR TAGS</p><span class="live-chip"><span class="live-dot"></span>Before you lose it</span></div>
+    <h1>Tag it. Get it back.</h1>
+    <p>Print a tag and stick it on your bottle, bag, calculator or laptop. If someone finds it, they scan the code and report it in one tap, and you get an email. The tag never shows your name or email.</p>
+  </div>
+</section>
+<form class="tag-form" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>What will this tag go on?<input name="label" maxlength="60" required placeholder="e.g. Blue Wildcraft backpack"></label>
+  <button class="primary-btn" type="submit">Create tag</button>
+  <small>{{ tags|length }} of {{ max_tags }} tags used</small>
+</form>
+{% if tags %}
+<section class="tag-grid">
+  {% for tag in tags %}
+  <article class="tag-card">
+    <div class="tag-sticker">
+      <div class="tag-qr">{{ codes[tag.id]|safe }}</div>
+      <strong>If found, scan me</strong>
+      <span>{{ tag.label }}</span>
+      <small>ClassFind · BIT</small>
+    </div>
+    <div class="tag-actions">
+      <a class="card-link" href="{{ url_for('scan_tag', token=tag.token) }}">Preview what finders see →</a>
+      <button class="secondary-btn compact-btn print-button" type="button">Print</button>
+      <form method="post" action="{{ url_for('delete_tag', tag_id=tag.id) }}" onsubmit="return confirm('Delete this tag? Its QR code will stop working.');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="inline-action danger" type="submit">Delete</button></form>
+    </div>
+  </article>
+  {% endfor %}
+</section>
+{% else %}
+<div class="empty-state compact-empty"><h3>No tags yet</h3><p>Create one for the thing you'd hate to lose most.</p></div>
+{% endif %}
+{% endblock %}

@@ -14,6 +14,8 @@ from pathlib import Path
 from uuid import uuid4
 
 import boto3
+import qrcode
+import qrcode.image.svg
 from botocore.exceptions import BotoCoreError, ClientError
 
 from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
@@ -322,6 +324,20 @@ class Claim(db.Model):
             self.status == "Approved" and self.handover_code
             and self.code_expires_at and self.code_expires_at > datetime.utcnow()
         )
+
+
+class Tag(db.Model):
+    """A printable QR sticker for something a student owns.
+
+    The code links to a public page that names the item but not its owner, and
+    lets whoever finds it file a found report with one click.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    label = db.Column(db.String(60), nullable=False)
+    token = db.Column(db.String(32), unique=True, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    owner = db.relationship("User")
 
 
 class CustodyEvent(db.Model):
@@ -1314,6 +1330,95 @@ def alert_possible_owners(found):
             f"{url_for('item_detail', item_id=found.id, _external=True)}\n\n"
             "If it's yours, open the link and submit a claim.",
         )
+
+
+MAX_TAGS = 10
+
+
+def qr_svg(url):
+    """The QR code for a URL as an SVG string, drawn without any image library."""
+    image = qrcode.make(url, image_factory=qrcode.image.svg.SvgPathImage, border=2)
+    return image.to_string(encoding="unicode")
+
+
+@app.route("/tags", methods=["GET", "POST"])
+@login_required
+def tags():
+    user = get_current_user()
+    if request.method == "POST":
+        label = request.form.get("label", "").strip()[:60]
+        if not label:
+            flash("Name the item the tag goes on, e.g. Blue backpack.", "error")
+        elif Tag.query.filter_by(owner_id=user.id).count() >= MAX_TAGS:
+            flash(f"You can have up to {MAX_TAGS} tags. Delete one you no longer use.", "error")
+        else:
+            db.session.add(Tag(owner_id=user.id, label=label, token=token_urlsafe(9)))
+            db.session.commit()
+            flash("Tag created. Print it and stick it on the item.", "success")
+        return redirect(url_for("tags"))
+    own = Tag.query.filter_by(owner_id=user.id).order_by(Tag.created_at.desc()).all()
+    codes = {tag.id: qr_svg(url_for("scan_tag", token=tag.token, _external=True)) for tag in own}
+    return render_template("tags.html", tags=own, codes=codes, max_tags=MAX_TAGS)
+
+
+@app.post("/tags/<int:tag_id>/delete")
+@login_required
+def delete_tag(tag_id):
+    tag = db.get_or_404(Tag, tag_id)
+    if tag.owner_id != get_current_user().id:
+        abort(404)
+    db.session.delete(tag)
+    db.session.commit()
+    flash("Tag deleted. Its QR code no longer works.", "success")
+    return redirect(url_for("tags"))
+
+
+@app.route("/t/<token>")
+def scan_tag(token):
+    tag = Tag.query.filter_by(token=token).first_or_404()
+    return render_template("scan.html", tag=tag)
+
+
+@app.post("/t/<token>/found")
+@login_required
+def report_tag_found(token):
+    """File a found report for a tagged item and tell its owner straight away."""
+    tag = Tag.query.filter_by(token=token).first_or_404()
+    finder = get_current_user()
+    if tag.owner_id == finder.id:
+        flash("That's your own tag.", "error")
+        return redirect(url_for("scan_tag", token=token))
+    location = request.form.get("location", "").strip()[:120]
+    if not location:
+        flash("Say where you found it.", "error")
+        return redirect(url_for("scan_tag", token=token))
+    item = Item(
+        title=tag.label,
+        description=f"Found with a ClassFind QR tag. {request.form.get('note', '').strip()[:500]}".strip(),
+        category="Other",
+        location=location,
+        status="Found",
+        reporter_name=finder.name,
+        contact=finder.email,
+        owner_id=finder.id,
+    )
+    db.session.add(item)
+    if finder.works_desk:
+        item.custody = "held"
+        log_custody(item, "Logged at the security desk from a QR tag scan", finder)
+    else:
+        item.custody = "awaiting"
+        log_custody(item, "Found by QR tag scan; awaiting drop-off at the security desk", finder)
+    db.session.commit()
+    send_email(
+        tag.owner.email,
+        f"Your {tag.label} was found",
+        f"Hi {tag.owner.name},\n\nSomeone scanned the ClassFind tag on your {tag.label} and reported it "
+        f"found near {location}. It is going to the security desk.\n\n"
+        f"Claim it here: {url_for('item_detail', item_id=item.id, _external=True)}",
+    )
+    flash("Thanks! The owner has been told. Please hand it in at the security desk.", "success")
+    return redirect(url_for("item_detail", item_id=item.id))
 
 
 @app.route("/desk")

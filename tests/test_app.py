@@ -12,6 +12,7 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret"
 
 from app import (
+    Tag,
     send_email,
     dashboard_insights,
     clean_parsed_report,
@@ -713,6 +714,43 @@ class ClassFindTestCase(unittest.TestCase):
                 "image_file": (BytesIO(b"fake-image-data"), "photo.png"),
             }, content_type="multipart/form-data", follow_redirects=True)
         rekognition.detect_labels.assert_not_called()
+
+    def test_a_scanned_tag_reports_the_item_and_tells_its_owner(self):
+        self.register("Owner", "owner@example.com")
+        self.post("/tags", data={"label": "Blue Wildcraft backpack"}, follow_redirects=True)
+        page = self.client.get("/tags").data
+        self.assertIn(b"<svg", page)
+        with app.app_context():
+            token = Tag.query.one().token
+        self.logout()
+
+        # Anyone can see the scan page; it names the item but not the owner.
+        scan = self.client.get(f"/t/{token}").data
+        self.assertIn(b"Blue Wildcraft backpack", scan)
+        self.assertNotIn(b"owner@example.com", scan)
+        self.assertNotIn(b"Owner", scan.split(b"<main", 1)[1])
+
+        self.register("Finder", "finder@example.com")
+        with mock.patch("app.send_email") as sent:
+            response = self.post(f"/t/{token}/found", data={"location": "Library"}, follow_redirects=True)
+        self.assertIn(b"The owner has been told", response.data)
+        self.assertEqual(sent.call_args.args[0], "owner@example.com")
+        with app.app_context():
+            item = Item.query.filter_by(title="Blue Wildcraft backpack").one()
+            self.assertEqual((item.status, item.custody, item.location), ("Found", "awaiting", "Library"))
+
+    def test_tags_belong_to_their_owner(self):
+        self.register("Owner", "owner@example.com")
+        self.post("/tags", data={"label": "Calculator"}, follow_redirects=True)
+        with app.app_context():
+            tag = Tag.query.one()
+            tag_id, token = tag.id, tag.token
+        response = self.post(f"/t/{token}/found", data={"location": "Lab"}, follow_redirects=True)
+        self.assertIn(b"your own tag", response.data)
+        self.logout()
+        self.register("Other", "other@example.com")
+        self.assertEqual(self.post(f"/tags/{tag_id}/delete").status_code, 404)
+        self.assertEqual(self.client.get("/t/not-a-real-token").status_code, 404)
 
     def test_admin_dashboard_and_delete(self):
         self.register_admin()
