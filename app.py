@@ -5,7 +5,7 @@ import urllib.error
 import urllib.request
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from hmac import compare_digest
 from secrets import randbelow, token_urlsafe
 from difflib import SequenceMatcher
@@ -840,6 +840,78 @@ def place_lookup():
     """Which places some location text could mean, for the map picker to highlight."""
     found = campus.resolve_place(request.args.get("q", "")[:120])
     return {**found, "names": {i: campus.place_short(i) for i in found["candidates"]}}
+
+
+RETRACE_LIMIT = 30
+
+
+def retrace_matches(stops, passed, since, words=""):
+    """Found items someone could have dropped on the route they walked.
+
+    `stops` are the places they went into: anything reported there counts.
+    `passed` are places and roads they only walked past or along: only things
+    found outside count, plus anything on the roads themselves. Items found
+    before they were there are left out by `since`. Matching words in the
+    description rank an item higher but never hide one.
+    """
+    stops, passed = set(stops), set(passed) - set(stops)
+    if not stops and not passed:
+        return []
+    candidates = (
+        Item.query.filter(
+            Item.status == "Found",
+            or_(Item.custody.is_(None), Item.custody != "released"),
+            Item.created_at >= since,
+            Item.place.in_(stops | passed),
+        )
+        .order_by(Item.created_at.desc())
+        .limit(MATCH_SCAN_LIMIT)
+        .all()
+    )
+    wanted = tokens(words)
+    ranked = []
+    for item in candidates:
+        on_road = item.place in campus.ROADS
+        if item.place in passed and not on_road and item.place_side != "outside":
+            continue
+        score = 0.5 if item.place in stops else 0.35
+        if wanted:
+            have = tokens(f"{item.title} {item.description} {item.category} {item.image_labels or ''}")
+            score += 0.5 * len(wanted & have) / len(wanted)
+        if item.place in stops:
+            why = f"at {campus.place_short(item.place)}, where you went"
+        elif on_road:
+            why = "on a road you walked"
+        else:
+            why = f"outside {campus.place_short(item.place)}, which you passed"
+        ranked.append((round(score, 3), item, why))
+    ranked.sort(key=lambda entry: (-entry[0], -entry[1].created_at.timestamp()))
+    return ranked[:RETRACE_LIMIT]
+
+
+@app.get("/api/retrace")
+def retrace():
+    """Retrace for the home page: ?stops=a,b&passed=c,d&since=ISO-time&q=words."""
+    def ids(name):
+        return [i for i in request.args.get(name, "").split(",") if campus.is_place(i)][:60]
+
+    try:
+        since = datetime.fromisoformat(request.args.get("since", "").replace("Z", "+00:00"))
+        if since.tzinfo:
+            since = since.astimezone(timezone.utc).replace(tzinfo=None)
+    except ValueError:
+        since = datetime.utcnow() - timedelta(days=1)
+    results = retrace_matches(ids("stops"), ids("passed"), since, request.args.get("q", "")[:200])
+    return {"items": [
+        {
+            "id": item.id, "title": item.title, "place": item.place,
+            "side": item.place_side or "inside", "where": item.location, "why": why,
+            "custody": item.custody_label, "at": item.created_at.isoformat() + "Z",
+            "url": url_for("item_detail", item_id=item.id), "image": item.thumb_src or item.image_src,
+            "score": score,
+        }
+        for score, item, why in results
+    ]}
 
 
 @app.get("/api/map")

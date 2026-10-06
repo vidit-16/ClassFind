@@ -23,6 +23,8 @@
   let items = [];
   let known = null;
   let selected = placeInput ? placeInput.value : "";
+  let retracing = false;
+  let retraceItems = [];
 
   const svgEl = (name, attrs = {}) => {
     const el = document.createElementNS(SVG_NS, name);
@@ -90,7 +92,7 @@
       }
       known = ids;
       applyCounts(data);
-      if (selected) drawPins(selected, false);
+      if (selected && !retracing) drawPins(selected, false);
     } catch {
       // Offline for a moment: the next poll tries again.
     }
@@ -181,7 +183,7 @@
   }
 
   function showCard(pin) {
-    const item = items.find((entry) => String(entry.id) === pin.dataset.item);
+    const item = [...retraceItems, ...items].find((entry) => String(entry.id) === pin.dataset.item);
     if (!item) return;
     pinLayer.querySelectorAll(".pin.active").forEach((el) => el.classList.remove("active"));
     pin.classList.add("active");
@@ -282,6 +284,7 @@
   svg.addEventListener("click", (event) => {
     const pin = event.target.closest(".pin");
     if (pin) return showCard(pin);
+    if (retracing) return addStop(event);
     const place = event.target.closest(".place");
     if (place) return select(place.dataset.place === selected ? "" : place.dataset.place);
     if (!card.hidden) return hideCard();
@@ -293,12 +296,376 @@
     if (!target) return;
     event.preventDefault();
     if (target.classList.contains("pin")) showCard(target);
+    else if (retracing) addStop({ target, clientX: 0, clientY: 0 });
     else select(target.dataset.place === selected ? "" : target.dataset.place);
   });
   resetButton.addEventListener("click", () => {
     animateView(fullView);
     if (selected) select("");
   });
+
+  // ---- Retrace: walk your route and see what was found along it -------------
+  const retracePane = document.querySelector(".retrace-pane");
+  const searchPane = document.querySelector(".search-pane");
+  const stopList = retracePane && retracePane.querySelector(".retrace-stops");
+  const retraceOut = retracePane && retracePane.querySelector(".retrace-results");
+  const retraceWords = retracePane && retracePane.querySelector(".retrace-words");
+  const routeLayer = svg.querySelector(".map-route");
+  const markLayer = svg.querySelector(".map-route-marks");
+  // Walking within this distance of a building counts as passing it.
+  const PASS_DISTANCE = 30;
+  const DOOR_REACH = 100;
+  const hint = holder.querySelector(".map-hint");
+  const hintText = hint ? hint.textContent : "";
+  let stops = [];
+  let graph = null;
+  let retraceTimer;
+  let scanFrame;
+
+  function buildGraph() {
+    graph = campus.nodes.map(() => []);
+    campus.edges.forEach(([a, b, length, via]) => {
+      graph[a].push([b, length, via]);
+      graph[b].push([a, length, via]);
+    });
+  }
+
+  // Shortest walk from any of `from` to any of `to`, as node indexes.
+  function shortest(from, to) {
+    const dist = new Map(from.map((n) => [n, 0]));
+    const prev = new Map();
+    const done = new Set();
+    const targets = new Set(to);
+    while (true) {
+      let node = null;
+      let best = Infinity;
+      dist.forEach((d, n) => { if (!done.has(n) && d < best) { best = d; node = n; } });
+      if (node === null) return [];
+      if (targets.has(node)) {
+        const path = [node];
+        while (prev.has(path[0])) path.unshift(prev.get(path[0]));
+        return path;
+      }
+      done.add(node);
+      graph[node].forEach(([next, length]) => {
+        const d = best + length;
+        if (d < (dist.has(next) ? dist.get(next) : Infinity)) {
+          dist.set(next, d);
+          prev.set(next, node);
+        }
+      });
+    }
+  }
+
+  function svgPoint(event) {
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    return point.matrixTransform(svg.getScreenCTM().inverse());
+  }
+
+  function addStop(event) {
+    const placeEl = event.target.closest(".place");
+    const roadEl = event.target.closest(".road-hit");
+    let stop = null;
+    if (placeEl) {
+      const place = placeById(placeEl.dataset.place);
+      const [x0, y0, x1, y1] = boxOf(place.outline);
+      stop = { id: place.id, name: place.short, nodes: place.doors, at: [x0, y0] };
+    } else if (roadEl) {
+      const road = campus.roads.find((r) => r.id === roadEl.dataset.road);
+      const tap = svgPoint(event);
+      const onRoad = new Set();
+      campus.edges.forEach(([a, b, , via]) => { if (via === road.id) { onRoad.add(a); onRoad.add(b); } });
+      const nearest = [...onRoad].sort((m, n) => {
+        const [mx, my] = campus.nodes[m];
+        const [nx, ny] = campus.nodes[n];
+        return Math.hypot(mx - tap.x, my - tap.y) - Math.hypot(nx - tap.x, ny - tap.y);
+      })[0];
+      stop = { id: road.id, name: road.name.replace(/^./, (c) => c.toLowerCase()), nodes: [nearest], at: campus.nodes[nearest] };
+    }
+    if (!stop || (stops.length && stops[stops.length - 1].id === stop.id)) return;
+    stops.push(stop);
+    showStops();
+    drawRoute();
+    queueRetrace();
+  }
+
+  function showStops() {
+    stopList.replaceChildren();
+    stops.forEach((stop, i) => {
+      const li = document.createElement("li");
+      li.textContent = stop.name;
+      const remove = Object.assign(document.createElement("button"), { type: "button", textContent: "×" });
+      remove.setAttribute("aria-label", `Remove ${stop.name}`);
+      remove.addEventListener("click", () => {
+        stops.splice(i, 1);
+        showStops();
+        drawRoute();
+        queueRetrace();
+      });
+      li.append(remove);
+      stopList.append(li);
+    });
+    if (hint) hint.textContent = stops.length ? "Keep tapping where you went next." : "Tap the first place you went today.";
+  }
+
+  // The route as node indexes, and every place and road it goes past.
+  function walk() {
+    const nodes = [];
+    for (let i = 1; i < stops.length; i += 1) {
+      const from = nodes.length ? [nodes[nodes.length - 1], ...stops[i - 1].nodes] : stops[i - 1].nodes;
+      const leg = shortest(from, stops[i].nodes);
+      if (nodes.length && leg[0] === nodes[nodes.length - 1]) leg.shift();
+      nodes.push(...leg);
+    }
+    const passed = new Set();
+    const onPath = new Set(nodes);
+    const samples = [];
+    for (let i = 1; i < nodes.length; i += 1) {
+      const [ax, ay] = campus.nodes[nodes[i - 1]];
+      const [bx, by] = campus.nodes[nodes[i]];
+      const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
+      for (let k = 0; k <= steps; k += 1) samples.push([ax + ((bx - ax) * k) / steps, ay + ((by - ay) * k) / steps]);
+    }
+    campus.places.forEach((place) => {
+      const [x0, y0, x1, y1] = boxOf(place.outline);
+      const near = samples.some(([x, y]) => Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(y0 - y, 0, y - y1)) <= PASS_DISTANCE);
+      // Passing the end of a short road that leads to its door counts too.
+      const atDoor = place.doors.some((d) => onPath.has(d) ||
+        graph[d].some(([next, length]) => length <= DOOR_REACH && onPath.has(next)));
+      if (near || atDoor) passed.add(place.id);
+    });
+    for (let i = 1; i < nodes.length; i += 1) {
+      const edge = graph[nodes[i - 1]].find(([next]) => next === nodes[i]);
+      if (edge) passed.add(edge[2]);
+    }
+    stops.forEach((stop) => passed.delete(stop.id));
+    return { nodes, passed: [...passed] };
+  }
+
+  function drawRoute() {
+    window.cancelAnimationFrame(scanFrame);
+    routeLayer.replaceChildren();
+    markLayer.replaceChildren();
+    pinLayer.replaceChildren();
+    hideCard();
+    svg.querySelectorAll(".place.on-route").forEach((el) => el.classList.remove("on-route"));
+    stops.forEach((stop) => {
+      const el = svg.querySelector(`.place[data-place="${stop.id}"]`);
+      if (el) el.classList.add("on-route");
+    });
+    const { nodes } = walk();
+    if (nodes.length > 1) {
+      const d = nodes.map((n, i) => `${i ? "L" : "M"}${campus.nodes[n].join(",")}`).join(" ");
+      const line = svgEl("path", { class: "route-line", d });
+      routeLayer.append(line);
+      const length = line.getTotalLength();
+      line.style.strokeDasharray = length;
+      line.style.strokeDashoffset = CALM.matches ? 0 : length;
+      void line.getBoundingClientRect();
+      line.style.strokeDashoffset = 0;
+    }
+    stops.forEach((stop, i) => {
+      const mark = svgEl("g", { class: "route-stop", transform: `translate(${stop.at.join(",")})` });
+      mark.append(svgEl("circle", { r: 13 }));
+      const number = svgEl("text", { y: 4.5 });
+      number.textContent = i + 1;
+      mark.append(number);
+      markLayer.append(mark);
+    });
+  }
+
+  function since() {
+    const choice = retracePane.querySelector("input[name='retrace-since']:checked").value;
+    const start = new Date();
+    if (choice === "week") return new Date(Date.now() - 7 * 86400000);
+    start.setHours(0, 0, 0, 0);
+    if (choice === "yesterday") start.setDate(start.getDate() - 1);
+    return start;
+  }
+
+  function queueRetrace() {
+    window.clearTimeout(retraceTimer);
+    retraceTimer = window.setTimeout(runRetrace, 450);
+  }
+
+  async function runRetrace() {
+    retraceOut.replaceChildren();
+    retraceItems = [];
+    if (!stops.length) return;
+    const { passed } = walk();
+    const params = new URLSearchParams({
+      stops: stops.map((s) => s.id).join(","),
+      passed: passed.join(","),
+      since: since().toISOString(),
+      q: retraceWords.value.trim(),
+    });
+    let found = [];
+    try {
+      const response = await fetch(`${retracePane.dataset.retrace}?${params}`);
+      found = (await response.json()).items;
+    } catch {
+      retraceOut.textContent = "Couldn't reach ClassFind. Try again in a moment.";
+      return;
+    }
+    retraceItems = found;
+    scan(found);
+  }
+
+  // A light runs along the route; each match drops in as it is passed.
+  function scan(found) {
+    const line = routeLayer.querySelector(".route-line");
+    const anchors = found.map((item) => anchorFor(item));
+    if (!line || CALM.matches) {
+      anchors.forEach((anchor, i) => dropPin(found[i], anchor));
+      listResults(found);
+      return;
+    }
+    const length = line.getTotalLength();
+    const samples = [];
+    for (let at = 0; at <= length; at += 6) samples.push([at, line.getPointAtLength(at)]);
+    const passAt = anchors.map(([x, y]) => samples.reduce((best, [at, p]) => (
+      Math.hypot(p.x - x, p.y - y) < best[1] ? [at, Math.hypot(p.x - x, p.y - y)] : best), [0, Infinity])[0]);
+    const dot = svgEl("circle", { class: "route-scan", r: 9 });
+    markLayer.append(dot);
+    const duration = Math.min(3200, 900 + length * 1.4);
+    const start = performance.now();
+    const dropped = new Set();
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const at = t * length;
+      const p = line.getPointAtLength(at);
+      dot.setAttribute("cx", p.x);
+      dot.setAttribute("cy", p.y);
+      passAt.forEach((mark, i) => {
+        if (mark <= at && !dropped.has(i)) {
+          dropped.add(i);
+          dropPin(found[i], anchors[i]);
+        }
+      });
+      if (t < 1) {
+        scanFrame = requestAnimationFrame(step);
+      } else {
+        dot.remove();
+        found.forEach((item, i) => { if (!dropped.has(i)) dropPin(item, anchors[i]); });
+        listResults(found);
+      }
+    };
+    scanFrame = requestAnimationFrame(step);
+  }
+
+  function anchorFor(item) {
+    const place = placeById(item.place);
+    const jitter = () => (Math.random() - 0.5) * 22;
+    if (place && item.side !== "outside") {
+      const [x0, y0, x1, y1] = boxOf(place.outline);
+      return [(x0 + x1) / 2 + jitter(), (y0 + y1) / 2 + jitter()];
+    }
+    if (place) {
+      const [x, y] = doorPoint(place);
+      return [x + jitter(), y + jitter()];
+    }
+    const road = campus.roads.find((r) => r.id === item.place);
+    const [a, b] = road.points;
+    const t = Math.random();
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  }
+
+  function dropPin(item, [x, y]) {
+    const pin = svgEl("g", {
+      class: `pin found${item.side === "outside" ? " outside" : ""}`,
+      transform: `translate(${x.toFixed(1)},${y.toFixed(1)})`,
+      tabindex: "0", role: "button", "data-item": item.id,
+    });
+    const body = svgEl("g", { class: "pin-body" });
+    body.append(svgEl("circle", { r: 9 }));
+    const label = svgEl("title");
+    label.textContent = item.title;
+    pin.append(body, label);
+    pinLayer.append(pin);
+  }
+
+  function listResults(found) {
+    retraceOut.replaceChildren();
+    const heading = document.createElement("h2");
+    heading.textContent = found.length
+      ? `${found.length} found along your route`
+      : "Nothing found along your route yet";
+    retraceOut.append(heading);
+    if (found.length) {
+      const list = Object.assign(document.createElement("ul"), { className: "result-list" });
+      found.forEach((item) => {
+        const li = Object.assign(document.createElement("li"), { className: "result-row" });
+        li.dataset.item = item.id;
+        li.dataset.place = item.place;
+        const link = Object.assign(document.createElement("a"), { href: item.url });
+        const thumb = Object.assign(document.createElement("span"), { className: "result-thumb" });
+        if (item.image) thumb.append(Object.assign(document.createElement("img"), { src: item.image, alt: "" }));
+        else thumb.textContent = item.title.slice(0, 1).toUpperCase();
+        const text = Object.assign(document.createElement("span"), { className: "result-text" });
+        text.append(
+          Object.assign(document.createElement("strong"), { textContent: item.title }),
+          Object.assign(document.createElement("small"), { textContent: `${item.why} · ${ago(item.at)}` }),
+        );
+        const side = Object.assign(document.createElement("span"), { className: "result-side" });
+        if (item.custody) side.append(Object.assign(document.createElement("span"), { className: "desk-chip", textContent: "At the desk" }));
+        link.append(thumb, text, side);
+        li.append(link);
+        list.append(li);
+      });
+      retraceOut.append(list);
+    }
+    const note = document.createElement("p");
+    note.className = "retrace-save";
+    const params = new URLSearchParams({
+      status: "Lost",
+      title: retraceWords.value.trim(),
+      location: stops.map((s) => s.name).join(" → ").slice(0, 120),
+    });
+    const save = Object.assign(document.createElement("a"), {
+      className: "text-link", href: `${retracePane.dataset.report}?${params}`,
+      textContent: "Save this as a lost report →",
+    });
+    note.append(found.length ? "Not there? " : "We'll email you if a match is handed in. ", save);
+    retraceOut.append(note);
+  }
+
+  function setMode(mode) {
+    retracing = mode === "retrace";
+    document.querySelectorAll(".mode-tab").forEach((tab) => {
+      const on = tab.dataset.mode === mode;
+      tab.classList.toggle("active", on);
+      tab.setAttribute("aria-selected", on);
+    });
+    retracePane.hidden = !retracing;
+    searchPane.hidden = retracing;
+    holder.classList.toggle("retrace-mode", retracing);
+    if (selected) select("", { search: false });
+    if (!graph && campus) buildGraph();
+    if (retracing) {
+      showStops();
+    } else {
+      stops = [];
+      retraceItems = [];
+      routeLayer.replaceChildren();
+      markLayer.replaceChildren();
+      pinLayer.replaceChildren();
+      svg.querySelectorAll(".place.on-route").forEach((el) => el.classList.remove("on-route"));
+      if (hint) hint.textContent = hintText;
+    }
+  }
+
+  if (retracePane) {
+    document.querySelectorAll(".mode-tab").forEach((tab) => {
+      tab.addEventListener("click", () => setMode(tab.dataset.mode));
+    });
+    retracePane.querySelectorAll("input[name='retrace-since']").forEach((radio) => {
+      radio.addEventListener("change", queueRetrace);
+    });
+    retraceWords.addEventListener("input", queueRetrace);
+  }
+
 
   // A report in the list lights up its place on the map.
   document.addEventListener("mouseover", (event) => {

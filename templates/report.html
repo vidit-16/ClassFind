@@ -26,12 +26,12 @@
       <div class="form-section">
         <p class="section-kicker">ITEM DETAILS</p>
         <div class="field-grid">
-          <label>Item name *<input name="title" required maxlength="120" placeholder="e.g. Black water bottle" autofocus></label>
+          <label>Item name *<input name="title" required maxlength="120" placeholder="e.g. Black water bottle" value="{{ request.args.title or '' }}" autofocus></label>
           <label>Category *<select name="category" required><option value="">Choose a category</option><option>Electronics</option><option>Books & Notes</option><option>Wallet & ID</option><option>Keys</option><option>Clothing</option><option>Stationery</option><option>Accessories</option><option>Other</option></select></label>
         </div>
         <label>Description *<textarea name="description" required maxlength="1000" rows="6" placeholder="Colour, brand, markings, stickers, model, or anything else that helps identify it."></textarea></label>
         <div class="field-grid">
-          <label>Where exactly? *<input name="location" required maxlength="120" placeholder="e.g. CS lab, 3rd floor"></label>
+          <label>Where exactly? *<input name="location" required maxlength="120" placeholder="e.g. CS lab, 3rd floor" value="{{ request.args.location or '' }}"></label>
           <label>Report type *<select name="status" required><option value="">Choose one</option><option value="Lost" {% if request.args.status == "Lost" %}selected{% endif %}>I lost this item</option><option value="Found" {% if request.args.status == "Found" %}selected{% endif %}>I found this item</option></select></label>
         </div>
       </div>

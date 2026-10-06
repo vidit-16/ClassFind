@@ -226,3 +226,29 @@ body::after{content:"";position:fixed;z-index:-1;width:420px;height:420px;right:
 .side-toggle{display:flex;gap:6px}.side-toggle label{display:flex;align-items:center;gap:6px;margin:0;padding:8px 12px;border:1px solid var(--line);border-radius:999px;font-size:13px;font-weight:600;cursor:pointer}.side-toggle input{width:auto;margin:0}
 .side-toggle label:has(input:checked){border-color:var(--accent);background:var(--soft)}
 @media(max-width:560px){.picker-frame .campus-svg{height:360px}}
+/* Retrace */
+.mode-tabs{display:inline-flex;background:#e4eae5;border-radius:999px;padding:4px;margin:0 0 16px}
+.mode-tab{border:0;background:transparent;padding:9px 16px;border-radius:999px;font-weight:700;font-size:13px;color:var(--muted);cursor:pointer}
+.mode-tab.active{background:var(--surface);color:var(--ink);box-shadow:0 2px 8px rgba(23,32,25,.08)}
+.retrace-help{margin:0 0 12px;color:var(--muted);font-size:14px;line-height:1.55}
+.retrace-stops{list-style:none;counter-reset:stop;display:flex;flex-wrap:wrap;gap:6px;padding:0;margin:0 0 12px}
+.retrace-stops li{counter-increment:stop;display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:5px 4px 5px 6px;font-size:13px;font-weight:600}
+.retrace-stops li::before{content:counter(stop);width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:11px}
+.retrace-stops button{border:0;background:transparent;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;padding:2px 6px}
+.retrace-when{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.retrace-when label{display:flex;align-items:center;gap:6px;margin:0;padding:8px 12px;border:1px solid var(--line);border-radius:999px;font-size:13px;font-weight:600;cursor:pointer;background:var(--surface)}
+.retrace-when input{width:auto;margin:0}.retrace-when label:has(input:checked){border-color:var(--accent);background:var(--soft)}
+.retrace-results h2{font-size:20px;margin:20px 0 10px;letter-spacing:-.02em}
+.retrace-save{font-size:13px;color:var(--muted);margin:14px 0 0}
+.retrace-mode .road-hit{pointer-events:stroke;cursor:pointer}.retrace-mode .road-hit:hover{stroke:rgba(33,92,67,.22)}
+.route-line{fill:none;stroke:var(--route);stroke-width:6;stroke-linecap:round;stroke-linejoin:round;opacity:.92;transition:stroke-dashoffset 1.1s ease}
+.route-stop circle{fill:var(--route);stroke:var(--ground);stroke-width:3}
+.route-stop text{fill:var(--ground);font:700 12px "Space Grotesk",sans-serif;text-anchor:middle}
+.route-scan{fill:var(--ground);stroke:var(--route);stroke-width:4}
+.place.on-route .place-shape{stroke:var(--route);stroke-width:3;stroke-dasharray:none}
+@media(max-width:900px){
+  .search-pane:not([hidden]),.retrace-pane:not([hidden]){display:contents}
+  .search-pane>*,.retrace-pane>*{order:1;width:100%}
+  .campus-panel .retrace-results{order:3}
+}
+.retrace-mode .map-badges{opacity:0}
