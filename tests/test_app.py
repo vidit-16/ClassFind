@@ -23,6 +23,7 @@ from app import (
     CustodyEvent,
     add_desk_columns,
     add_place_columns,
+    StaffInvite,
     _rate_hits,
     MATCH_THRESHOLD,
     PAGE_SIZE,
@@ -487,18 +488,60 @@ class ClassFindTestCase(unittest.TestCase):
         response = self.client.get("/desk", follow_redirects=True)
         self.assertIn(b"Security desk access is required", response.data)
 
-    def test_admin_can_give_and_remove_desk_access(self):
+    def test_desk_access_is_given_by_invitation_and_accepted(self):
         self.register("Student", "student@example.com")
         self.logout()
         self.register_admin("admin@example.com")
         with app.app_context():
             student_id = User.query.filter_by(email="student@example.com").one().id
-        self.post(f"/admin/users/{student_id}/staff", follow_redirects=True)
-        with app.app_context():
-            self.assertTrue(db.session.get(User, student_id).is_staff)
+        # The old one-click grant no longer gives access.
         self.post(f"/admin/users/{student_id}/staff", follow_redirects=True)
         with app.app_context():
             self.assertFalse(db.session.get(User, student_id).is_staff)
+        with mock.patch("app.send_email") as sent:
+            self.post("/admin/staff/invite", data={"email": "Student@Example.com"}, follow_redirects=True)
+        self.assertEqual(sent.call_args.args[0], "student@example.com")
+        with app.app_context():
+            token = StaffInvite.query.one().token
+            self.assertFalse(db.session.get(User, student_id).is_staff)
+        self.assertIn(b"waiting for them to accept", self.client.get("/admin").data)
+        self.logout()
+        # Someone else signed in cannot answer it.
+        self.register("Other", "other@example.com")
+        self.post(f"/staff/invite/{token}", data={"answer": "accept"})
+        self.logout()
+        self.login("student@example.com")
+        self.assertIn(b"invited you to work the security desk", self.client.get("/").data)
+        self.post(f"/staff/invite/{token}", data={"answer": "accept"}, follow_redirects=True)
+        with app.app_context():
+            self.assertTrue(db.session.get(User, student_id).is_staff)
+            self.assertFalse(User.query.filter_by(email="other@example.com").one().is_staff)
+        self.assertNotIn(b"invited you to work the security desk", self.client.get("/").data)
+        self.logout()
+        self.login("admin@example.com")
+        self.post(f"/admin/users/{student_id}/staff", follow_redirects=True)
+        with app.app_context():
+            self.assertFalse(db.session.get(User, student_id).is_staff)
+
+    def test_an_invitation_expires_and_can_be_declined(self):
+        self.register_admin("admin@example.com")
+        with mock.patch("app.send_email"):
+            self.post("/admin/staff/invite", data={"email": "late@example.com"})
+            self.post("/admin/staff/invite", data={"email": "no@example.com"})
+        with app.app_context():
+            late = StaffInvite.query.filter_by(email="late@example.com").one()
+            late.created_at = datetime.utcnow() - timedelta(days=8)
+            db.session.commit()
+            late_token = late.token
+            no_token = StaffInvite.query.filter_by(email="no@example.com").one().token
+        self.logout()
+        self.register("Late", "late@example.com")
+        self.post(f"/staff/invite/{late_token}", data={"answer": "accept"})
+        self.logout()
+        self.register("No", "no@example.com")
+        self.post(f"/staff/invite/{no_token}", data={"answer": "decline"})
+        with app.app_context():
+            self.assertFalse(any(user.is_staff for user in User.query.all()))
 
     def test_a_report_is_put_on_the_map_from_its_location(self):
         self.register()

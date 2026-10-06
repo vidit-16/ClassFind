@@ -1,7 +1,7 @@
 {# Pick where an item was by tapping the campus map. picker.js does the work; without it the text above is used. #}
 <div class="form-section place-picker" data-lookup="{{ url_for('place_lookup') }}">
   <p class="section-kicker">ON THE MAP</p>
-  <p class="picker-help">Tap the building or road where it was. We'll guess from what you typed above, too.</p>
+  <p class="picker-help">Tap the building or path where it was. We'll guess from what you typed above, too.</p>
   <div class="picker-frame">
     {% with picker=true %}{% include "_campus_map.html" %}{% endwith %}
   </div>

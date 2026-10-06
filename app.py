@@ -368,6 +368,30 @@ class Tag(db.Model):
     owner = db.relationship("User")
 
 
+class StaffInvite(db.Model):
+    """An admin's invitation for someone to work the security desk.
+
+    Desk access is only granted when the invited person accepts it from their
+    own account, so a mistyped address cannot hand it to a stranger who never
+    asked, and nobody becomes staff without knowing.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(160), nullable=False, index=True)
+    token = db.Column(db.String(32), unique=True, nullable=False, index=True)
+    invited_by_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    responded_at = db.Column(db.DateTime)
+    accepted = db.Column(db.Boolean)
+    invited_by = db.relationship("User")
+
+    @property
+    def is_open(self):
+        return self.responded_at is None and self.created_at > datetime.utcnow() - timedelta(days=INVITE_DAYS)
+
+
+INVITE_DAYS = 7
+
+
 class CustodyEvent(db.Model):
     """One line of a found item's chain of custody."""
     id = db.Column(db.Integer, primary_key=True)
@@ -625,10 +649,15 @@ def pending_claim_counts(user):
 def inject_current_user():
     user = get_current_user()
     incoming, outgoing = pending_claim_counts(user)
+    invite = None
+    if user and not user.works_desk:
+        invite = next((i for i in StaffInvite.query.filter_by(email=user.email.lower(), responded_at=None)
+                       .order_by(StaffInvite.created_at.desc()).limit(3) if i.is_open), None)
     return {
         "current_user": user,
         "incoming_claim_count": incoming,
         "outgoing_claim_count": outgoing,
+        "staff_invite": invite,
     }
 
 
@@ -882,7 +911,7 @@ def retrace_matches(stops, passed, since, words=""):
         if item.place in stops:
             why = f"at {campus.place_short(item.place)}, where you went"
         elif on_road:
-            why = "on a road you walked"
+            why = "on a path you walked"
         else:
             why = f"outside {campus.place_short(item.place)}, which you passed"
         ranked.append((round(score, 3), item, why))
@@ -1855,11 +1884,78 @@ def desk_handover():
 @app.post("/admin/users/<int:user_id>/staff")
 @admin_required
 def toggle_staff(user_id):
+    """Take desk access away. Giving it is done by invitation, see invite_staff()."""
     user = db.get_or_404(User, user_id)
-    user.is_staff = not user.is_staff
+    if not user.is_staff:
+        flash("To add desk staff, invite them by email.", "error")
+        return redirect(url_for("admin_dashboard"))
+    user.is_staff = False
     db.session.commit()
-    flash(f"{user.name} {'can now' if user.is_staff else 'can no longer'} work the security desk.", "success")
+    flash(f"{user.name} can no longer work the security desk.", "success")
     return redirect(url_for("admin_dashboard"))
+
+
+@app.post("/admin/staff/invite")
+@admin_required
+def invite_staff():
+    email = request.form.get("email", "").strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        flash("Enter the email address of the person to invite.", "error")
+        return redirect(url_for("admin_dashboard"))
+    existing = User.query.filter(db.func.lower(User.email) == email).first()
+    if existing and existing.works_desk:
+        flash(f"{existing.name} already works the desk.", "error")
+        return redirect(url_for("admin_dashboard"))
+    for old in StaffInvite.query.filter_by(email=email, responded_at=None):
+        db.session.delete(old)
+    invite = StaffInvite(email=email, token=token_urlsafe(16), invited_by=get_current_user())
+    db.session.add(invite)
+    db.session.commit()
+    send_email(
+        email,
+        "You've been invited to work the ClassFind security desk",
+        "You've been invited to help at the BIT security desk on ClassFind: receiving handed-in "
+        "items, checking claims and releasing items with a collection code.\n\n"
+        f"Sign in with this email address and accept here within {INVITE_DAYS} days:\n"
+        f"{url_for('staff_invite', token=invite.token, _external=True)}",
+    )
+    flash(f"Invitation sent to {email}. They get desk access once they accept.", "success")
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.post("/admin/staff/invite/<int:invite_id>/cancel")
+@admin_required
+def cancel_invite(invite_id):
+    invite = db.get_or_404(StaffInvite, invite_id)
+    if invite.responded_at is None:
+        db.session.delete(invite)
+        db.session.commit()
+        flash(f"Invitation to {invite.email} cancelled.", "success")
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/staff/invite/<token>", methods=["GET", "POST"])
+@login_required
+def staff_invite(token):
+    """The invited person accepts or declines, signed in as the invited address."""
+    invite = StaffInvite.query.filter_by(token=token).first_or_404()
+    user = get_current_user()
+    if invite.email != user.email.lower():
+        flash(f"This invitation is for {invite.email}. Sign in with that account to answer it.", "error")
+        return redirect(url_for("index"))
+    if not invite.is_open:
+        flash("This invitation has already been answered or has expired.", "error")
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        accepted = request.form.get("answer") == "accept"
+        invite.accepted = accepted
+        invite.responded_at = datetime.utcnow()
+        if accepted:
+            user.is_staff = True
+        db.session.commit()
+        flash("You can now work the security desk." if accepted else "Invitation declined.", "success")
+        return redirect(url_for("desk" if accepted else "index"))
+    return render_template("staff_invite.html", invite=invite)
 
 
 # A pair below this is not worth showing. The two reports the matches page
@@ -2118,6 +2214,8 @@ def admin_dashboard():
         items=items,
         user_count=User.query.count(),
         users=User.query.order_by(User.created_at.desc()).limit(50).all(),
+        invites=[i for i in StaffInvite.query.filter_by(responded_at=None).order_by(StaffInvite.created_at.desc())
+                 if i.is_open],
         insights=dashboard_insights(),
         pending_claims=Claim.query.filter_by(status="Pending").count(),
         query=query,

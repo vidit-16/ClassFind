@@ -49,9 +49,15 @@
       </div>
     {% endif %}
   {% endwith %}
+  {% if staff_invite and request.endpoint != "staff_invite" %}
+  <div class="invite-banner">
+    <span><strong>{{ staff_invite.invited_by.name if staff_invite.invited_by else "An admin" }}</strong> invited you to work the security desk.</span>
+    <a class="primary-btn compact" href="{{ url_for('staff_invite', token=staff_invite.token) }}">See the invitation</a>
+  </div>
+  {% endif %}
   {% block content %}{% endblock %}
 </main>
-<footer class="footer"><span>ClassFind · Cloud Computing Lab · Batch 9</span><span>Find it. Report it. Return it.</span></footer>
+<footer class="footer"><span>ClassFind · BIT campus lost and found</span><span>Find it. Report it. Return it.</span></footer>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>

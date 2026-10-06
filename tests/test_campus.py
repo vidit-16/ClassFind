@@ -20,6 +20,17 @@ class PlaceWordsTestCase(unittest.TestCase):
         self.assertEqual(self.place("RAI lab"), "mech-blocks")
         self.assertEqual(self.place("Upahara Darshini"), "kims-canteen")
 
+    def test_the_bank_is_inside_and_the_atm_is_its_own_place(self):
+        for text in ("Canara bank", "near the bank counter", "bank"):
+            self.assertEqual(self.place(text), "main-block", text)
+        for text in ("ATM", "bank ATM", "Canara ATM", "outside the canara bank atm"):
+            self.assertEqual(self.place(text), "atm", text)
+
+    def test_paths_are_called_paths_but_road_still_works(self):
+        self.assertTrue(campus.place_name("road-main").startswith("Main path"))
+        self.assertEqual(self.place("main road"), "road-main")
+        self.assertEqual(self.place("main path"), "road-main")
+
     def test_misheard_and_misspelt_places_still_match(self):
         self.assertEqual(self.place("mesh parking"), "mech-parking")
         self.assertEqual(self.place("mechnical parkin"), "mech-parking")

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Desk invitation — ClassFind{% endblock %}
+{% block content %}
+<section class="form-wrap">
+  <div class="form-intro">
+    <p class="eyebrow">SECURITY DESK</p>
+    <h1>Work the security desk?</h1>
+    <p>{{ invite.invited_by.name if invite.invited_by else "An admin" }} invited {{ invite.email }} to help at the BIT security desk.
+      Desk staff mark handed-in items as received, check claims, and release items when the owner shows their collection code.</p>
+  </div>
+  <form class="report-form form-section" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-actions">
+      <button class="secondary-btn" type="submit" name="answer" value="decline">Decline</button>
+      <button class="primary-btn" type="submit" name="answer" value="accept">Accept <span>→</span></button>
+    </div>
+  </form>
+</section>
+{% endblock %}

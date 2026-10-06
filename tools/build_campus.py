@@ -38,7 +38,7 @@ PLACES = [
      ["main block", "bit main block", "main building", "quadrangle", "quad", "library", "admin office",
       "administration", "office", "principal", "principal office", "placement cell", "placement office",
       "seminar hall", "seminar", "sports", "sports room", "pe", "physical education", "ignou",
-      "security desk", "desk",
+      "security desk", "desk", "bank", "canara bank", "canara bank branch", "bank branch",
       "cse", "computer science", "cs lab", "cs department", "computer lab", "civil", "civil department",
       "eee", "electrical", "ete", "telecommunication", "tele communication", "telecom", "eie",
       "instrumentation", "ise", "information science", "ai ml", "aiml", "ai and ml", "ece",
@@ -93,6 +93,8 @@ PLACES = [
      ["workshop", "workshops", "mech workshop", "workshop lab"]),
     ("bit-tree", 28, "BIT Tree", "BIT Tree", "bit", (785, 1050, 813, 1078),
      ["bit tree", "the tree", "tree"]),
+    ("atm", 30, "ATM outside the Main Block", "ATM", "small", (592, 1034, 620, 1062),
+     ["atm", "bank atm", "canara atm", "canara bank atm", "atm machine", "cash machine", "एटीएम", "ಎಟಿಎಂ"]),
     ("kims-canteen", 29, "KIMS Canteen / Upahara Darshini", "KIMS Canteen", "block", (940, 422, 1045, 476),
      ["kims canteen", "upahara darshini", "upahara", "darshini"]),
 ]
@@ -156,6 +158,7 @@ ROADS = [
     ("road-kin-gate-out", "Road outside the nursing gate", [(509, 1625), (509, 1534)], []),
     ("road-xerox-canteen", "Road to the xerox corner", [(885, 1140), (918, 1140)], []),
     ("road-puff", "Road to the puff shop", [(885, 1212), (920, 1212)], []),
+    ("road-atm", "Road to the ATM", [(606, 1062), (606, 1100)], []),
 ]
 
 # The road from the main gate to the Main Block meets it at the front, where the desk is.
@@ -308,8 +311,9 @@ def main():
             "aliases": words,
         })
     for road_id, name, points, words in ROADS:
-        data["roads"].append({"id": road_id, "name": name, "points": [shift(pt) for pt in points],
-                              "aliases": words})
+        shown = name.replace("Road", "Path").replace("road", "path")
+        data["roads"].append({"id": road_id, "name": shown, "points": [shift(pt) for pt in points],
+                              "aliases": [name.lower(), *words, *(w.replace("road", "path") for w in words)]})
     OUT.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
     print(f"{OUT.name}: {len(data['places'])} places, {len(data['roads'])} roads, "
           f"{len(nodes)} nodes, {len(edges)} edges")
