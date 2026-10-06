@@ -1,5 +1,8 @@
+import json
 import os
 import re
+import urllib.error
+import urllib.request
 import threading
 import time
 from datetime import datetime, timedelta
@@ -161,6 +164,8 @@ RATE_LIMITS = {
     "submit_claim": (20, 60 * 60),
     # Collection codes are six digits, so the desk screen caps guesses.
     "desk_handover": (10, 60),
+    # Each parse may call the model, which costs a request.
+    "parse_report": (30, 60 * 60),
 }
 app.config["RATE_LIMITS_ENABLED"] = True
 _rate_hits = {}
@@ -329,9 +334,42 @@ VALUABLE_CATEGORIES = {"Electronics", "Wallet & ID", "Keys"}
 CUSTODY_LABELS = {
     "awaiting": "Awaiting drop-off at the security desk",
     "held": "Held at the security desk",
+    "office": "Moved to the admin office for safekeeping",
     "released": "Returned to its owner",
 }
+# Where an item can be collected from. The admin office keeps valuables the
+# desk has held for too long, and releases them the same way.
+IN_STORAGE = {"held", "office"}
 HANDOVER_CODE_HOURS = 48
+ESCALATE_AFTER_HOURS = int(os.getenv("ESCALATE_AFTER_HOURS", "72"))
+
+
+def escalate_unclaimed_valuables():
+    """Move valuables held at the desk past the limit to the admin office.
+
+    The desk is a counter; the admin office has a safe. Run whenever the desk
+    or admin pages load, so no scheduler is needed. Returns how many moved.
+    """
+    cutoff = datetime.utcnow() - timedelta(hours=ESCALATE_AFTER_HOURS)
+    moved = 0
+    for item in Item.query.filter_by(status="Found", custody="held").all():
+        if not item.is_valuable:
+            continue
+        received = next(
+            (e.created_at for e in reversed(item.events)
+             if e.action.startswith(("Received at", "Logged at"))),
+            item.created_at,
+        )
+        if received > cutoff:
+            continue
+        if any(c.status == "Approved" for c in item.claims):
+            continue
+        item.custody = "office"
+        log_custody(item, f"Moved to the admin office, unclaimed after {ESCALATE_AFTER_HOURS} hours")
+        moved += 1
+    if moved:
+        db.session.commit()
+    return moved
 
 
 def log_custody(item, action, actor=None):
@@ -898,7 +936,7 @@ def resolve_item(item_id):
     if not can_manage_item(item):
         flash("You can only manage your own reports.", "error")
         return redirect(url_for("item_detail", item_id=item.id))
-    if item.custody == "held" and not get_current_user().is_admin:
+    if item.custody in IN_STORAGE and not get_current_user().is_admin:
         flash("An item held at the desk is closed by releasing it to its owner.", "error")
         return redirect(url_for("item_detail", item_id=item.id))
 
@@ -1052,11 +1090,125 @@ def reject_claim(claim_id):
     return redirect(url_for("desk"))
 
 
+REPORT_CATEGORIES = [
+    "Electronics", "Books & Notes", "Wallet & ID", "Keys",
+    "Clothing", "Stationery", "Accessories", "Other",
+]
+CATEGORY_WORDS = {
+    "Electronics": ("phone", "iphone", "laptop", "charger", "earbuds", "airpods", "headphone",
+                    "calculator", "tablet", "ipad", "watch", "power bank", "mouse", "pendrive"),
+    "Books & Notes": ("book", "notebook", "notes", "textbook", "record", "diary", "file"),
+    "Wallet & ID": ("wallet", "purse", "id card", "identity", "aadhaar", "card", "license"),
+    "Keys": ("key", "keys", "keychain"),
+    "Clothing": ("jacket", "hoodie", "sweater", "shirt", "cap", "scarf", "shoe", "coat"),
+    "Stationery": ("pen", "pencil", "geometry", "stapler", "scale", "eraser"),
+    "Accessories": ("bottle", "bag", "backpack", "umbrella", "spectacles", "glasses", "sunglasses", "lunch box"),
+}
+
+
+def parse_report_rules(text):
+    """Fill the report form from one sentence without a model.
+
+    Good enough for "lost my black bottle near the library": the verb decides
+    Lost or Found, keywords pick the category, and the words after a place
+    preposition become the location.
+    """
+    lowered = text.lower()
+    status = "Found" if re.search(r"\b(found|picked up|someone left|left behind)\b", lowered) else "Lost"
+    category = "Other"
+    for name, words in CATEGORY_WORDS.items():
+        if any(re.search(rf"\b{re.escape(word)}\b", lowered) for word in words):
+            category = name
+            break
+    location = ""
+    match = re.search(r"\b(?:near|at|in|inside|outside|beside|behind)\s+(?:the\s+)?([a-z0-9 ,'-]{3,60})", lowered)
+    if match:
+        location = re.split(r"\b(?:yesterday|today|this|last|on|around|while|and|but|when)\b|[.;]",
+                            match.group(1))[0].strip(" ,'-")
+        location = " ".join(word[:1].upper() + word[1:] for word in location.split())
+    title = re.sub(
+        r"^(?:i\s+)?(?:have\s+)?(?:lost|found|picked up|misplaced|someone left)\s+(?:my|an|a|the|someone'?s)?\s*",
+        "", text.strip(), flags=re.IGNORECASE,
+    )
+    title = re.split(r"\s+(?:near|at|in|inside|outside|beside|behind|yesterday|today)\b", title, maxsplit=1)[0]
+    title = title.strip(" .,")[:80]
+    # Capitalise "black bottle" but leave names like "iPhone" alone.
+    if title[:1].islower() and not title[1:2].isupper():
+        title = title[:1].upper() + title[1:]
+    return {
+        "title": title,
+        "description": text.strip()[:1000],
+        "category": category,
+        "location": location[:120],
+        "status": status,
+    }
+
+
+def parse_report_with_model(text):
+    """Ask an LLM on Groq to fill the form. Returns None without a key or on any failure."""
+    key = os.getenv("GROQ_API_KEY", "").strip()
+    if not key:
+        return None
+    prompt = (
+        "Extract a campus lost-and-found report from the student's message. Reply with JSON only: "
+        '{"title": short item name, "description": the useful details, '
+        f'"category": one of {REPORT_CATEGORIES}, "location": the place on campus or "", '
+        '"status": "Lost" or "Found"}. Do not invent details that are not in the message.'
+    )
+    body = json.dumps({
+        "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+        "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": text}],
+    }).encode()
+    request_ = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions", data=body, method="POST",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request_, timeout=8) as response:
+            reply = json.loads(response.read())
+        return json.loads(reply["choices"][0]["message"]["content"])
+    except (urllib.error.URLError, TimeoutError, KeyError, IndexError, ValueError):
+        app.logger.warning("Report parsing by the model failed; using the rules instead.")
+        return None
+
+
+def clean_parsed_report(fields, text):
+    """Keep only valid values, so the model can never put junk in the form."""
+    fallback = parse_report_rules(text)
+    if not isinstance(fields, dict):
+        return fallback
+    result = {}
+    for name, limit in (("title", 120), ("description", 1000), ("location", 120)):
+        value = fields.get(name)
+        result[name] = value.strip()[:limit] if isinstance(value, str) and value.strip() else fallback[name]
+    result["category"] = fields.get("category") if fields.get("category") in REPORT_CATEGORIES else fallback["category"]
+    result["status"] = fields.get("status") if fields.get("status") in {"Lost", "Found"} else fallback["status"]
+    return result
+
+
+@app.post("/report/parse")
+@login_required
+def parse_report():
+    """Turn one sentence into report fields for the form to review before publishing."""
+    text = (request.get_json(silent=True) or {}).get("text", "").strip()
+    if len(text) < 5:
+        return {"error": "Describe the item in a sentence."}, 400
+    text = text[:600]
+    parsed = parse_report_with_model(text)
+    return {"fields": clean_parsed_report(parsed, text), "source": "model" if parsed else "rules"}
+
+
 @app.route("/desk")
 @staff_required
 def desk():
+    moved = escalate_unclaimed_valuables()
+    if moved:
+        flash(f"{moved} unclaimed valuable item{'s' if moved != 1 else ''} moved to the admin office.", "success")
     awaiting = Item.query.filter_by(status="Found", custody="awaiting").order_by(Item.created_at).all()
-    held = Item.query.filter_by(status="Found", custody="held").order_by(Item.created_at).all()
+    held = (Item.query.filter(Item.status == "Found", Item.custody.in_(IN_STORAGE))
+            .order_by(Item.created_at).all())
     pending = Claim.query.filter_by(status="Pending").order_by(Claim.created_at).all()
     approved = Claim.query.filter_by(status="Approved").order_by(Claim.decided_at).all()
     return render_template("desk.html", awaiting=awaiting, held=held, pending=pending, approved=approved)
@@ -1112,7 +1264,7 @@ def desk_handover():
     if not claim.code_is_live:
         flash("That code has expired. Issue a new one from the approved claims list.", "error")
         return redirect(url_for("desk"))
-    if claim.item.custody != "held":
+    if claim.item.custody not in IN_STORAGE:
         flash("The item has not been received at the desk yet.", "error")
         return redirect(url_for("desk"))
 
