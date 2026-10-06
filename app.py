@@ -82,6 +82,14 @@ app.config["AWS_REGION"] = os.getenv("AWS_REGION", "ap-south-1")
 database_url = os.getenv("DATABASE_URL", "sqlite:///classfind.db")
 if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
+if is_production() and database_url.startswith("sqlite"):
+    # Not fatal, because an environment already running this way would stop
+    # serving on its next deploy. /health reports the engine so it can be seen.
+    app.logger.warning(
+        "DATABASE_URL is not set, so reports are being written to a SQLite file "
+        "on this instance. It is lost whenever the instance is replaced or the "
+        "app is redeployed. Point DATABASE_URL at PostgreSQL."
+    )
 
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -397,7 +405,9 @@ def delete_image(image_url):
 def health():
     try:
         db.session.execute(db.text("SELECT 1"))
-        return {"status": "ok", "database": "ok"}, 200
+        # The engine is named because SQLite and PostgreSQL both answer "ok",
+        # and only one of them survives a redeploy.
+        return {"status": "ok", "database": "ok", "engine": db.engine.dialect.name}, 200
     except Exception:
         db.session.rollback()
         return {"status": "error", "database": "unavailable"}, 503

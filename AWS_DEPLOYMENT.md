@@ -68,7 +68,10 @@ Open the Elastic Beanstalk URL and then `/health`.
 
 Expected response:
 
-`{"status":"ok","database":"ok"}`
+`{"status":"ok","database":"ok","engine":"postgresql"}`
+
+If `engine` is `sqlite`, `DATABASE_URL` is not reaching the app and reports are
+being written to a file on the instance, which a redeploy erases.
 
 ## 6. Demo flow
 
