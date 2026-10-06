@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Found: {{ tag.label }} — ClassFind{% endblock %}
+{% block content %}
+<section class="form-wrap">
+  <div class="form-intro">
+    <p class="eyebrow">YOU FOUND SOMETHING</p>
+    <h1>This {{ tag.label }} belongs to a BIT student.</h1>
+    <p>Thank you for scanning. Tell us where you found it and the owner gets an email right away. Then hand it in at the campus security desk, where they can collect it safely.</p>
+  </div>
+  {% if current_user %}
+    {% if current_user.id == tag.owner_id %}
+    <div class="resolved-banner">This is your own tag. This is what a finder sees when they scan it.</div>
+    {% else %}
+    <form class="report-form" method="post" action="{{ url_for('report_tag_found', token=tag.token) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Where did you find it? *<input name="location" required maxlength="120" placeholder="e.g. Library, 2nd floor"></label>
+      <label>Anything else? <span class="optional">(optional)</span><textarea name="note" maxlength="500" rows="3" placeholder="e.g. It was under a table"></textarea></label>
+      <button class="primary-btn" type="submit">Tell the owner →</button>
+    </form>
+    {% endif %}
+  {% else %}
+    <div class="form-actions"><a class="primary-btn" href="{{ url_for('login', next=request.path) }}">Sign in to report it</a><a class="secondary-btn" href="{{ url_for('register') }}">Create an account</a></div>
+    <p class="form-note">No account? Just hand it in at the campus security desk.</p>
+  {% endif %}
+</section>
+{% endblock %}

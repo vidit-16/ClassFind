@@ -20,6 +20,13 @@
           <span class="status-pill status-lost">Your claim</span>
           <h3>{{ claim.item.title }}</h3>
           <p class="claim-message">“{{ claim.message }}”</p>
+          {% set reached = {"Pending": 1, "Approved": 3, "Collected": 4, "Rejected": 2}[claim.status] %}
+          <ol class="claim-steps{% if claim.status == 'Rejected' %} rejected{% endif %}" aria-label="Claim progress">
+            <li class="{{ 'done' if reached >= 1 }}">Submitted</li>
+            <li class="{{ 'done' if reached >= 2 }}">{{ "Not approved" if claim.status == "Rejected" else "Reviewed by the desk" }}</li>
+            <li class="{{ 'done' if reached >= 3 }}">Ready to collect</li>
+            <li class="{{ 'done' if reached >= 4 }}">Collected</li>
+          </ol>
           {% if claim.status == "Approved" %}
             {% if claim.code_is_live %}
             <div class="collection-code" aria-label="Collection code">

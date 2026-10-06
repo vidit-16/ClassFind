@@ -9,6 +9,7 @@
     {% if item.custody %}<div class="custody-banner custody-{{ item.custody }}">{{ item.custody_label }}</div>{% endif %}
     <h1>{{ item.title }}</h1>
     <p class="detail-description">{{ item.description }}</p>
+    {% if item.label_list %}<p class="photo-labels"><span>In the photo</span>{% for label in item.label_list %}<b>{{ label }}</b>{% endfor %}</p>{% endif %}
     <div class="detail-facts">
       <div><span>Last known location</span><strong>⌖ {{ item.location }}</strong></div>
       <div><span>Reported by</span><strong>{{ item.reporter_name }}</strong></div>

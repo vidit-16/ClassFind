@@ -106,6 +106,12 @@ the log, which means sessions end when you restart it.
 | `SECRET_KEY` | Signs session cookies | random per process, outside production |
 | `ADMIN_EMAIL` | The one account that gets admin pages | none, so nobody is admin |
 | `STAFF_EMAILS` | Comma-separated accounts that work the security desk; the admin can also grant this from the admin page | none |
+| `SES_SENDER` | Verified Amazon SES address that alert emails come from | unset, no email |
+| `PHOTO_LABELS` | Label uploaded photos with Amazon Rekognition and use the labels in matching | off |
+| `THUMBNAILS` | Show the Lambda-made thumbnails on the home page | off |
+| `GROQ_API_KEY` | Lets an LLM on Groq fill the report form from one sentence; keyword rules are used without it | unset |
+| `GROQ_MODEL` | Model for that | `llama-3.3-70b-versatile` |
+| `ESCALATE_AFTER_HOURS` | Hours a valuable stays at the desk before moving to the admin office | `72` |
 | `DATABASE_URL` | SQLite or PostgreSQL connection string | `sqlite:///classfind.db` |
 | `S3_BUCKET` | Bucket for uploaded images | unset, images go to local disk |
 | `AWS_REGION` | Region for that bucket | `ap-south-1` |
@@ -115,7 +121,7 @@ the log, which means sessions end when you restart it.
 
 ## Deployment
 
-[AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md) covers the S3 bucket and its policy, the
+[docs/AWS_SETUP_V2.md](docs/AWS_SETUP_V2.md) walks through SES, Rekognition, the thumbnail Lambda and the CloudWatch alarm. [AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md) covers the S3 bucket and its policy, the
 IAM permissions the instance role needs, RDS, and the Elastic Beanstalk
 environment. The short version: set the variables above, push the source
 bundle, and check `/health`, which reports the database as well as the app.
@@ -126,7 +132,7 @@ bundle, and check `/health`, which reports the database as well as the app.
 .venv/Scripts/python.exe -m unittest discover -s tests -v
 ```
 
-39 tests, no network and no AWS account needed. They cover registration and
+56 tests, no network and no AWS account needed. They cover registration and
 sign-in, reporting, search, the security desk flow from drop-off to handover,
 collection codes that are single use and expire, admin access, CSRF
 rejection and the security headers, image upload, pagination across two pages,

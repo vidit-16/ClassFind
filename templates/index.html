@@ -64,7 +64,7 @@
       <span class="filter-state">Filters active</span>
     {% endif %}
   </div>
-  <form class="filters" method="get">
+  <form class="filters live-filters" method="get">
     <label class="search-input-wrap">
       <span aria-hidden="true">⌕</span>
       <input name="q" value="{{ query }}" placeholder="Try “black wallet” or “library”" autocomplete="off">
@@ -96,6 +96,7 @@
   </div>
 </section>
 
+<div id="results" aria-live="polite">
 <section class="results-header">
   <div>
     <p class="section-kicker">COMMUNITY REPORTS</p>
@@ -114,8 +115,9 @@
 {% for item in items %}
 <article class="item-card" data-item-card>
   <div class="item-visual">
-    {% if item.image_src %}<img loading="lazy" src="{{ item.image_src }}" alt="{{ item.title }}">{% else %}<span>{{ item.category[:1].upper() }}</span>{% endif %}
+    {% if item.image_src %}<img loading="lazy" src="{{ item.thumb_src or item.image_src }}" data-fallback="{{ item.image_src }}" alt="{{ item.title }}">{% else %}<span>{{ item.category[:1].upper() }}</span>{% endif %}
     <span class="status-pill {{ item.status_class }}">{{ item.status }}</span>
+    {% if item.custody in ("held", "office") %}<span class="desk-chip">At the desk</span>{% endif %}
   </div>
   <div class="item-body">
     <div class="item-title-row"><p class="item-category">{{ item.category }}</p><span class="item-age" data-time="{{ item.created_at.isoformat() }}">{{ item.created_at.strftime("%d %b %Y") }}</span></div>
@@ -148,13 +150,14 @@
   {% if current_user %}<a class="primary-btn compact" href="{{ url_for('report') }}">Create report</a>{% else %}<a class="primary-btn compact" href="{{ url_for('register') }}">Create account</a>{% endif %}
 </div>
 {% endif %}
+</div>
 
 <section class="how-section">
   <div><p class="section-kicker">HOW CLASSFIND WORKS</p><h2>From “lost” to “found” in three steps.</h2></div>
   <div class="how-grid">
     <article><span>01</span><strong>Report</strong><p>Add the item, place and a useful description. Images help too.</p></article>
     <article><span>02</span><strong>Match</strong><p>ClassFind compares active lost and found reports for similar details.</p></article>
-    <article><span>03</span><strong>Claim</strong><p>Owners can submit a claim and the finder can review and resolve it.</p></article>
+    <article><span>03</span><strong>Collect</strong><p>Found items go to the security desk. Owners prove it's theirs and collect it with a one-time code.</p></article>
   </div>
 </section>
 {% endblock %}
