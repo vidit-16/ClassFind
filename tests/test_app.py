@@ -507,6 +507,56 @@ class ClassFindTestCase(unittest.TestCase):
         )
         self.assertIn(b"marked as resolved", response.data)
 
+    def test_claims_follow_the_account_not_the_contact_field(self):
+        """A report whose contact names someone else still belongs to whoever filed it."""
+        self.register("Finder", "finder@example.com")
+        with app.app_context():
+            finder = User.query.filter_by(email="finder@example.com").first()
+            found = Item(
+                title="Grey umbrella",
+                description="Folding umbrella",
+                category="Other",
+                location="Canteen",
+                status="Found",
+                reporter_name="Finder",
+                contact="owner@example.com",
+                owner_id=finder.id,
+            )
+            db.session.add(found)
+            db.session.commit()
+            found_id = found.id
+
+        self.assertIn(b"Grey umbrella", self.client.get("/me").data)
+        response = self.post(
+            f"/item/{found_id}/claim",
+            data={"message": "Trying to claim the report I filed myself."},
+            follow_redirects=True,
+        )
+        self.assertIn(b"You cannot claim your own found report.", response.data)
+
+        self.post("/logout", follow_redirects=True)
+        self.register("Owner", "owner@example.com")
+        self.assertNotIn(b"Grey umbrella", self.client.get("/me").data)
+        self.post(
+            f"/item/{found_id}/claim",
+            data={"message": "That is my umbrella from the canteen."},
+            follow_redirects=True,
+        )
+        with app.app_context():
+            claim_id = Claim.query.filter_by(item_id=found_id).one().id
+
+        # Sharing the contact address does not let the claimant accept their own claim.
+        self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
+        with app.app_context():
+            self.assertEqual(db.session.get(Claim, claim_id).status, "Pending")
+
+        self.post("/logout", follow_redirects=True)
+        self.login("finder@example.com")
+        self.assertIn(b"That is my umbrella", self.client.get("/claims").data)
+        self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
+        with app.app_context():
+            self.assertEqual(db.session.get(Claim, claim_id).status, "Accepted")
+
     def test_faster_matching_returns_what_the_plain_version_would(self):
         """The early exit only skips pairs that could not have cleared the cut-off."""
         self.register()

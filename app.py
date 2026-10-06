@@ -259,18 +259,24 @@ def get_current_user():
     return db.session.get(User, user_id) if user_id else None
 
 
+def filed_by(user):
+    """Query filter for the reports this account filed.
+
+    The same rule as owns_item(): owner_id decides, and the contact field is
+    consulted only for reports from before the column existed.
+    """
+    return or_(
+        Item.owner_id == user.id,
+        db.and_(Item.owner_id.is_(None), Item.contact.ilike(user.email)),
+    )
+
+
 def pending_claim_counts(user):
     if not user:
         return 0, 0
     incoming = (
         Claim.query.join(Item, Claim.item_id == Item.id)
-        .filter(
-            or_(
-                Item.owner_id == user.id,
-                db.and_(Item.owner_id.is_(None), Item.contact.ilike(user.email)),
-            ),
-            Claim.status == "Pending",
-        )
+        .filter(filed_by(user), Claim.status == "Pending")
         .count()
     )
     outgoing = Claim.query.filter_by(claimant_id=user.id, status="Pending").count()
@@ -548,13 +554,13 @@ def logout():
 def profile():
     user = get_current_user()
     items = (
-        Item.query.filter(Item.contact.ilike(user.email))
+        Item.query.filter(filed_by(user))
         .order_by(Item.created_at.desc())
         .all()
     )
     incoming_claims = (
         Claim.query.join(Item, Claim.item_id == Item.id)
-        .filter(Item.contact.ilike(user.email))
+        .filter(filed_by(user))
         .order_by(Claim.created_at.desc())
         .all()
     )
@@ -718,7 +724,7 @@ def submit_claim(item_id):
     if item.status != "Found":
         flash("Claims can only be submitted for active found items.", "error")
         return redirect(url_for("item_detail", item_id=item.id))
-    if item.contact.lower() == user.email.lower():
+    if owns_item(user, item):
         flash("You cannot claim your own found report.", "error")
         return redirect(url_for("item_detail", item_id=item.id))
 
@@ -750,7 +756,7 @@ def claims():
     user = get_current_user()
     incoming = (
         Claim.query.join(Item, Claim.item_id == Item.id)
-        .filter(Item.contact.ilike(user.email))
+        .filter(filed_by(user))
         .order_by(Claim.created_at.desc())
         .all()
     )
@@ -764,9 +770,7 @@ def claims():
 
 def can_manage_claim(claim):
     user = get_current_user()
-    return bool(user and (
-        user.is_admin or claim.item.contact.lower() == user.email.lower()
-    ))
+    return bool(user and (user.is_admin or owns_item(user, claim.item)))
 
 
 @app.post("/claims/<int:claim_id>/accept")
