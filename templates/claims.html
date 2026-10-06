@@ -2,57 +2,41 @@
 {% block title %}Claims — ClassFind{% endblock %}
 {% block content %}
 <section class="page-heading">
-  <div><div class="hero-topline"><p class="eyebrow">CLAIMS & OWNERSHIP</p><span class="live-chip"><span class="live-dot"></span>Action center</span></div><h1>Resolve ownership with confidence.</h1><p>Review incoming claims for your found items and keep track of the claims you have submitted.</p></div>
+  <div><div class="hero-topline"><p class="eyebrow">MY CLAIMS</p><span class="live-chip"><span class="live-dot"></span>Collection</span></div><h1>Track what you've claimed.</h1><p>The security desk checks every claim. Once yours is approved, bring the collection code and your college ID to the desk.</p></div>
+  {% if current_user.works_desk %}<a class="primary-btn" href="{{ url_for('desk') }}">Open the security desk <span>→</span></a>{% endif %}
 </section>
 <section class="claim-overview">
-  <div class="claim-overview-card"><span>Incoming</span><strong>{{ incoming|selectattr("status","equalto","Pending")|list|length }}</strong><small>Need your review</small></div>
-  <div class="claim-overview-card"><span>My pending claims</span><strong>{{ outgoing|selectattr("status","equalto","Pending")|list|length }}</strong><small>Waiting for a response</small></div>
-  <div class="claim-overview-card"><span>Decided</span><strong>{{ incoming|selectattr("status","ne","Pending")|list|length + outgoing|selectattr("status","ne","Pending")|list|length }}</strong><small>Completed decisions</small></div>
+  <div class="claim-overview-card"><span>Waiting for review</span><strong>{{ outgoing|selectattr("status","equalto","Pending")|list|length }}</strong><small>The desk is checking your proof</small></div>
+  <div class="claim-overview-card"><span>Ready to collect</span><strong>{{ outgoing|selectattr("status","equalto","Approved")|list|length }}</strong><small>Bring your code to the desk</small></div>
+  <div class="claim-overview-card"><span>Collected</span><strong>{{ outgoing|selectattr("status","equalto","Collected")|list|length }}</strong><small>Back with you</small></div>
 </section>
 <section class="claim-section">
-  <div class="results-header"><div><p class="section-kicker">INCOMING</p><h2>{{ incoming|length }} claim{% if incoming|length != 1 %}s{% endif %}</h2></div><span class="queue-note">Claims for items you reported as Found</span></div>
-  {% if incoming %}
-    <div class="claim-list">
-    {% for claim in incoming %}
-      <article class="claim-card {% if claim.status == 'Pending' %}claim-pending{% endif %}">
-        <div class="claim-main">
-          <span class="status-pill status-found">Found item</span>
-          <h3>{{ claim.item.title }}</h3>
-          <p class="claim-by">Claim from <strong>{{ claim.claimant.name }}</strong> · {{ claim.claimant.email }}</p>
-          <p class="claim-message">“{{ claim.message }}”</p>
-          <small>{{ claim.created_at.strftime("%d %b %Y, %I:%M %p") }}</small>
-        </div>
-        <div class="claim-actions">
-          {% if claim.status == "Pending" %}
-            <form method="post" action="{{ url_for('accept_claim', claim_id=claim.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="primary-btn compact" type="submit">Accept claim</button></form>
-            <form method="post" action="{{ url_for('reject_claim', claim_id=claim.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger-btn compact-btn" type="submit">Reject</button></form>
-          {% else %}
-            <span class="claim-status {{ claim.status|lower }}">{{ claim.status }}</span>
-            {% if claim.decided_at %}<small class="decision-time">Decided {{ claim.decided_at.strftime("%d %b %Y") }}</small>{% endif %}
-          {% endif %}
-        </div>
-      </article>
-    {% endfor %}
-    </div>
-  {% else %}
-    <div class="empty-state compact-empty"><h3>No incoming claims</h3><p>Claims submitted for your found items will appear here.</p></div>
-  {% endif %}
-</section>
-<section class="claim-section">
-  <div class="results-header"><div><p class="section-kicker">MY CLAIMS</p><h2>{{ outgoing|length }} submitted</h2></div><span class="queue-note">Claims you've made on Found reports</span></div>
+  <div class="results-header"><div><p class="section-kicker">SUBMITTED</p><h2>{{ outgoing|length }} claim{% if outgoing|length != 1 %}s{% endif %}</h2></div></div>
   {% if outgoing %}
     <div class="claim-list">
     {% for claim in outgoing %}
-      <article class="claim-card">
+      <article class="claim-card {% if claim.status == 'Approved' %}claim-ready{% endif %}">
         <div class="claim-main">
           <span class="status-pill status-lost">Your claim</span>
           <h3>{{ claim.item.title }}</h3>
-          <p class="claim-by">Reported by {{ claim.item.reporter_name }}</p>
           <p class="claim-message">“{{ claim.message }}”</p>
-          <small>{{ claim.created_at.strftime("%d %b %Y, %I:%M %p") }}</small>
+          {% if claim.status == "Approved" %}
+            {% if claim.code_is_live %}
+            <div class="collection-code" aria-label="Collection code">
+              <span>Collection code</span>
+              <strong>{{ claim.handover_code[:3] }} {{ claim.handover_code[3:] }}</strong>
+              <small>Show this with your college ID at the security desk. Valid until {{ claim.code_expires_at.strftime("%d %b, %I:%M %p") }} UTC. Don't share it.</small>
+            </div>
+            {% else %}
+            <p class="claim-by">Your code has expired. Ask at the security desk for a new one.</p>
+            {% endif %}
+          {% elif claim.status == "Collected" %}
+            <p class="claim-by">Collected {{ claim.collected_at.strftime("%d %b %Y, %I:%M %p") }}{% if claim.released_by %} · released by {{ claim.released_by.name }}{% endif %}</p>
+          {% endif %}
+          <small>Submitted {{ claim.created_at.strftime("%d %b %Y, %I:%M %p") }}</small>
         </div>
         <div class="claim-actions">
-          <span class="claim-status {{ claim.status|lower }}">{{ claim.status }}</span>
+          <span class="claim-status {{ claim.status|lower }}">{{ "Ready to collect" if claim.status == "Approved" else claim.status }}</span>
           {% if claim.status == "Pending" %}
             <form method="post" action="{{ url_for('withdraw_claim', claim_id=claim.id) }}" onsubmit="return confirm('Withdraw this pending claim?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="inline-action danger" type="submit">Withdraw</button></form>
           {% endif %}
@@ -62,7 +46,7 @@
     {% endfor %}
     </div>
   {% else %}
-    <div class="empty-state compact-empty"><h3>No submitted claims</h3><p>When you claim a found item, its status will appear here.</p></div>
+    <div class="empty-state compact-empty"><h3>No submitted claims</h3><p>When you claim a found item, its status and collection code will appear here.</p></div>
   {% endif %}
 </section>
 {% endblock %}

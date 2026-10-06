@@ -2,9 +2,9 @@ import os
 import re
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from hmac import compare_digest
-from secrets import token_urlsafe
+from secrets import randbelow, token_urlsafe
 from difflib import SequenceMatcher
 from functools import wraps
 from pathlib import Path
@@ -63,6 +63,12 @@ def admin_email(env=None):
     """The one account allowed to hold admin rights, from ADMIN_EMAIL."""
     env = os.environ if env is None else env
     return env.get("ADMIN_EMAIL", "").strip().lower()
+
+
+def staff_emails(env=None):
+    """Accounts that work the security desk, from STAFF_EMAILS (comma separated)."""
+    env = os.environ if env is None else env
+    return {e.strip().lower() for e in env.get("STAFF_EMAILS", "").split(",") if e.strip()}
 
 
 def env_flag(name, env=None):
@@ -153,6 +159,8 @@ RATE_LIMITS = {
     "register": (5, 60 * 60),
     "report": (20, 60 * 60),
     "submit_claim": (20, 60 * 60),
+    # Collection codes are six digits, so the desk screen caps guesses.
+    "desk_handover": (10, 60),
 }
 app.config["RATE_LIMITS_ENABLED"] = True
 _rate_hits = {}
@@ -215,7 +223,13 @@ class User(db.Model):
     email = db.Column(db.String(160), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
+    # Security desk staff log handed-in items, verify claims and release items.
+    is_staff = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    @property
+    def works_desk(self):
+        return self.is_staff or self.is_admin
 
 
 class Item(db.Model):
@@ -233,8 +247,23 @@ class Item(db.Model):
     # access rule. Rows created before this column exists carry NULL and fall
     # back to that comparison; see backfill_item_owners().
     owner_id = db.Column(db.Integer, db.ForeignKey("user.id"), index=True)
+    # Where a found item physically is: awaiting drop-off at the security desk,
+    # held there, or released to its owner. Empty for lost reports.
+    custody = db.Column(db.String(20))
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     claims = db.relationship("Claim", back_populates="item", cascade="all, delete-orphan")
+    events = db.relationship(
+        "CustodyEvent", back_populates="item", cascade="all, delete-orphan",
+        order_by="CustodyEvent.created_at",
+    )
+
+    @property
+    def is_valuable(self):
+        return self.category in VALUABLE_CATEGORIES
+
+    @property
+    def custody_label(self):
+        return CUSTODY_LABELS.get(self.custody, "")
 
     @property
     def image_src(self):
@@ -266,8 +295,47 @@ class Claim(db.Model):
     status = db.Column(db.String(20), nullable=False, default="Pending")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     decided_at = db.Column(db.DateTime)
+    # Issued when the desk approves the claim, shown only to the claimant, and
+    # entered by staff at handover. Single use, and it expires.
+    handover_code = db.Column(db.String(6))
+    code_expires_at = db.Column(db.DateTime)
+    collected_at = db.Column(db.DateTime)
+    released_by_id = db.Column(db.Integer, db.ForeignKey("user.id"))
     item = db.relationship("Item", back_populates="claims")
-    claimant = db.relationship("User")
+    claimant = db.relationship("User", foreign_keys=[claimant_id])
+    released_by = db.relationship("User", foreign_keys=[released_by_id])
+
+    @property
+    def code_is_live(self):
+        return bool(
+            self.status == "Approved" and self.handover_code
+            and self.code_expires_at and self.code_expires_at > datetime.utcnow()
+        )
+
+
+class CustodyEvent(db.Model):
+    """One line of a found item's chain of custody."""
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey("item.id", ondelete="CASCADE"), nullable=False, index=True)
+    action = db.Column(db.String(300), nullable=False)
+    actor_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    item = db.relationship("Item", back_populates="events")
+    actor = db.relationship("User")
+
+
+# Claims on these need a longer proof that names an identifier.
+VALUABLE_CATEGORIES = {"Electronics", "Wallet & ID", "Keys"}
+CUSTODY_LABELS = {
+    "awaiting": "Awaiting drop-off at the security desk",
+    "held": "Held at the security desk",
+    "released": "Returned to its owner",
+}
+HANDOVER_CODE_HOURS = 48
+
+
+def log_custody(item, action, actor=None):
+    db.session.add(CustodyEvent(item=item, action=action, actor=actor))
 
 
 def backfill_item_owners():
@@ -294,9 +362,45 @@ def backfill_item_owners():
     app.logger.info("Added item.owner_id and matched existing reports to their accounts.")
 
 
+def add_desk_columns():
+    """Add the security desk columns to tables that predate them.
+
+    Found reports from before the desk existed are treated as already held, so
+    they can still be claimed and released through the desk.
+    """
+    inspector = db.inspect(db.engine)
+    wanted = {
+        "user": {"is_staff": "BOOLEAN NOT NULL DEFAULT FALSE"},
+        "item": {"custody": "VARCHAR(20)"},
+        "claim": {
+            "handover_code": "VARCHAR(6)",
+            "code_expires_at": "TIMESTAMP",
+            "collected_at": "TIMESTAMP",
+            "released_by_id": "INTEGER",
+        },
+    }
+    tables = inspector.get_table_names()
+    added = False
+    for table, columns in wanted.items():
+        if table not in tables:
+            continue
+        existing = {column["name"] for column in inspector.get_columns(table)}
+        for name, ddl in columns.items():
+            if name not in existing:
+                db.session.execute(db.text(f'ALTER TABLE "{table}" ADD COLUMN {name} {ddl}'))
+                added = True
+    if added:
+        db.session.execute(db.text(
+            "UPDATE item SET custody = 'held' WHERE status = 'Found' AND custody IS NULL"
+        ))
+        db.session.commit()
+        app.logger.info("Added the security desk columns.")
+
+
 with app.app_context():
     db.create_all()
     backfill_item_owners()
+    add_desk_columns()
 
 if not app.config["S3_BUCKET"]:
     Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
@@ -322,14 +426,13 @@ def filed_by(user):
 
 
 def pending_claim_counts(user):
+    """Claims waiting on this account: reviews for desk staff, and the account's own open claims."""
     if not user:
         return 0, 0
-    incoming = (
-        Claim.query.join(Item, Claim.item_id == Item.id)
-        .filter(filed_by(user), Claim.status == "Pending")
-        .count()
-    )
-    outgoing = Claim.query.filter_by(claimant_id=user.id, status="Pending").count()
+    incoming = Claim.query.filter_by(status="Pending").count() if user.works_desk else 0
+    outgoing = Claim.query.filter(
+        Claim.claimant_id == user.id, Claim.status.in_(("Pending", "Approved"))
+    ).count()
     return incoming, outgoing
 
 
@@ -370,6 +473,33 @@ def admin_required(view):
     return wrapped
 
 
+def staff_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        user = get_current_user()
+        if not user:
+            flash("Please sign in to continue.", "error")
+            return redirect(url_for("login", next=request.path))
+        if not user.works_desk:
+            flash("Security desk access is required.", "error")
+            return redirect(url_for("index"))
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def apply_role_emails(user):
+    """Grant the rights named in ADMIN_EMAIL and STAFF_EMAILS. True if anything changed."""
+    changed = False
+    if admin_email() and user.email == admin_email() and not user.is_admin:
+        user.is_admin = True
+        changed = True
+    if user.email in staff_emails() and not user.is_staff:
+        user.is_staff = True
+        changed = True
+    return changed
+
+
 def owns_item(user, item):
     """Whether this account filed the report.
 
@@ -384,8 +514,18 @@ def owns_item(user, item):
 
 
 def can_manage_item(item):
+    """Lost reports belong to whoever filed them. A found item is the finder's
+    only until it is handed in; from then on the desk manages it."""
     user = get_current_user()
-    return bool(user and (user.is_admin or owns_item(user, item)))
+    if not user:
+        return False
+    if user.is_admin:
+        return True
+    if item.custody:
+        if user.is_staff:
+            return True
+        return owns_item(user, item) and item.custody == "awaiting"
+    return owns_item(user, item)
 
 
 def allowed_file(filename):
@@ -554,6 +694,7 @@ def register():
             email=email,
             password_hash=generate_password_hash(password),
             is_admin=bool(is_admin),
+            is_staff=email in staff_emails(),
         )
         db.session.add(user)
         db.session.commit()
@@ -578,9 +719,8 @@ def login():
             flash("Incorrect email or password.", "error")
             return render_template("login.html")
 
-        # ADMIN_EMAIL may be set after the account was made, so apply it here too.
-        if admin_email() and user.email == admin_email() and not user.is_admin:
-            user.is_admin = True
+        # ADMIN_EMAIL and STAFF_EMAILS may be set after the account was made.
+        if apply_role_emails(user):
             db.session.commit()
 
         session["user_id"] = user.id
@@ -667,8 +807,19 @@ def report():
             image_url=uploaded_url,
         )
         db.session.add(item)
+        if status == "Found":
+            # Every found item goes to the security desk. Staff logging one are at the desk already.
+            if user.works_desk:
+                item.custody = "held"
+                log_custody(item, "Logged at the security desk", user)
+            else:
+                item.custody = "awaiting"
+                log_custody(item, "Reported found; awaiting drop-off at the security desk", user)
         db.session.commit()
-        flash("Your report has been added to ClassFind.", "success")
+        if item.custody == "awaiting":
+            flash("Report added. Please hand the item in at the security desk.", "success")
+        else:
+            flash("Your report has been added to ClassFind.", "success")
         return redirect(url_for("item_detail", item_id=item.id))
 
     return render_template("report.html")
@@ -689,6 +840,7 @@ def item_detail(item_id):
         item=item,
         can_manage=can_manage_item(item),
         existing_claim=existing_claim,
+        show_custody=bool(user and (user.works_desk or owns_item(user, item))),
     )
 
 
@@ -746,6 +898,9 @@ def resolve_item(item_id):
     if not can_manage_item(item):
         flash("You can only manage your own reports.", "error")
         return redirect(url_for("item_detail", item_id=item.id))
+    if item.custody == "held" and not get_current_user().is_admin:
+        flash("An item held at the desk is closed by releasing it to its owner.", "error")
+        return redirect(url_for("item_detail", item_id=item.id))
 
     item.status = "Resolved"
     db.session.commit()
@@ -782,13 +937,21 @@ def submit_claim(item_id):
         return redirect(url_for("item_detail", item_id=item.id))
 
     message = request.form.get("message", "").strip()
-    if len(message) < 10:
-        flash("Tell the reporter why you believe this item is yours.", "error")
+    minimum = 30 if item.is_valuable else 10
+    if len(message) < minimum:
+        if item.is_valuable:
+            flash("For a valuable item, give a detail only the owner would know, such as a "
+                  "serial number, IMEI, lock screen or a mark on it.", "error")
+        else:
+            flash("Tell the security desk why you believe this item is yours.", "error")
         return redirect(url_for("item_detail", item_id=item.id))
 
-    existing = Claim.query.filter_by(item_id=item.id, claimant_id=user.id).first()
-    if existing and existing.status == "Pending":
-        flash("You already have a pending claim for this item.", "error")
+    existing = Claim.query.filter(
+        Claim.item_id == item.id, Claim.claimant_id == user.id,
+        Claim.status.in_(("Pending", "Approved")),
+    ).first()
+    if existing:
+        flash("You already have an open claim for this item.", "error")
         return redirect(url_for("item_detail", item_id=item.id))
 
     claim = Claim(
@@ -799,7 +962,7 @@ def submit_claim(item_id):
     )
     db.session.add(claim)
     db.session.commit()
-    flash("Claim submitted. The reporter can now review it.", "success")
+    flash("Claim submitted. The security desk will review it.", "success")
     return redirect(url_for("claims"))
 
 
@@ -807,23 +970,18 @@ def submit_claim(item_id):
 @login_required
 def claims():
     user = get_current_user()
-    incoming = (
-        Claim.query.join(Item, Claim.item_id == Item.id)
-        .filter(filed_by(user))
-        .order_by(Claim.created_at.desc())
-        .all()
-    )
     outgoing = (
         Claim.query.filter_by(claimant_id=user.id)
         .order_by(Claim.created_at.desc())
         .all()
     )
-    return render_template("claims.html", incoming=incoming, outgoing=outgoing)
+    return render_template("claims.html", outgoing=outgoing)
 
 
 def can_manage_claim(claim):
+    """Claims are decided at the security desk, not by whoever found the item."""
     user = get_current_user()
-    return bool(user and (user.is_admin or owns_item(user, claim.item)))
+    return bool(user and user.works_desk)
 
 
 @app.post("/claims/<int:claim_id>/accept")
@@ -835,24 +993,24 @@ def accept_claim(claim_id):
         return redirect(url_for("claims"))
     if claim.status != "Pending":
         flash("This claim has already been decided.", "error")
-        return redirect(url_for("claims"))
+        return redirect(url_for("desk"))
+    if Claim.query.filter_by(item_id=claim.item_id, status="Approved").first():
+        flash("Another claim for this item is already approved and awaiting collection.", "error")
+        return redirect(url_for("desk"))
 
-    claim.status = "Accepted"
+    issue_handover_code(claim)
+    claim.status = "Approved"
     claim.decided_at = datetime.utcnow()
-    claim.item.status = "Resolved"
-
-    other_claims = Claim.query.filter(
-        Claim.item_id == claim.item_id,
-        Claim.id != claim.id,
-        Claim.status == "Pending",
-    ).all()
-    for other in other_claims:
-        other.status = "Rejected"
-        other.decided_at = datetime.utcnow()
-
+    log_custody(claim.item, f"Claim by {claim.claimant.name} approved; collection code issued",
+                get_current_user())
     db.session.commit()
-    flash("Claim accepted and item marked as resolved.", "success")
-    return redirect(url_for("claims"))
+    flash("Claim approved. The owner now has a collection code.", "success")
+    return redirect(url_for("desk"))
+
+
+def issue_handover_code(claim):
+    claim.handover_code = f"{randbelow(10**6):06d}"
+    claim.code_expires_at = datetime.utcnow() + timedelta(hours=HANDOVER_CODE_HOURS)
 
 
 @app.post("/claims/<int:claim_id>/withdraw")
@@ -881,15 +1039,112 @@ def reject_claim(claim_id):
     if not can_manage_claim(claim):
         flash("You cannot manage this claim.", "error")
         return redirect(url_for("claims"))
-    if claim.status != "Pending":
+    if claim.status not in {"Pending", "Approved"}:
         flash("This claim has already been decided.", "error")
-        return redirect(url_for("claims"))
+        return redirect(url_for("desk"))
 
     claim.status = "Rejected"
     claim.decided_at = datetime.utcnow()
+    claim.handover_code = None
+    log_custody(claim.item, f"Claim by {claim.claimant.name} rejected", get_current_user())
     db.session.commit()
     flash("Claim rejected.", "success")
-    return redirect(url_for("claims"))
+    return redirect(url_for("desk"))
+
+
+@app.route("/desk")
+@staff_required
+def desk():
+    awaiting = Item.query.filter_by(status="Found", custody="awaiting").order_by(Item.created_at).all()
+    held = Item.query.filter_by(status="Found", custody="held").order_by(Item.created_at).all()
+    pending = Claim.query.filter_by(status="Pending").order_by(Claim.created_at).all()
+    approved = Claim.query.filter_by(status="Approved").order_by(Claim.decided_at).all()
+    return render_template("desk.html", awaiting=awaiting, held=held, pending=pending, approved=approved)
+
+
+@app.post("/desk/item/<int:item_id>/received")
+@staff_required
+def desk_receive(item_id):
+    item = db.get_or_404(Item, item_id)
+    if item.status != "Found" or item.custody != "awaiting":
+        flash("That item is not awaiting drop-off.", "error")
+        return redirect(url_for("desk"))
+    item.custody = "held"
+    log_custody(item, "Received at the security desk", get_current_user())
+    db.session.commit()
+    flash(f"{item.title} is now held at the desk.", "success")
+    return redirect(url_for("desk"))
+
+
+@app.post("/claims/<int:claim_id>/reissue")
+@staff_required
+def reissue_code(claim_id):
+    claim = db.get_or_404(Claim, claim_id)
+    if claim.status != "Approved":
+        flash("Only approved claims have a collection code.", "error")
+        return redirect(url_for("desk"))
+    issue_handover_code(claim)
+    log_custody(claim.item, f"New collection code issued to {claim.claimant.name}", get_current_user())
+    db.session.commit()
+    flash("A new collection code was issued.", "success")
+    return redirect(url_for("desk"))
+
+
+@app.post("/desk/handover")
+@staff_required
+def desk_handover():
+    """Release an item to the claimant whose collection code this is.
+
+    The code must belong to an approved, unexpired claim on an item the desk
+    holds. The claim becomes Collected, the item Resolved, any other open claim
+    on it Rejected, and the release is logged under the staff member.
+    """
+    code = re.sub(r"[^0-9]", "", request.form.get("code", ""))
+    claim = None
+    if len(code) == 6:
+        for candidate in Claim.query.filter_by(status="Approved").all():
+            if candidate.handover_code and compare_digest(candidate.handover_code, code):
+                claim = candidate
+                break
+    if not claim:
+        flash("That code does not match an approved claim.", "error")
+        return redirect(url_for("desk"))
+    if not claim.code_is_live:
+        flash("That code has expired. Issue a new one from the approved claims list.", "error")
+        return redirect(url_for("desk"))
+    if claim.item.custody != "held":
+        flash("The item has not been received at the desk yet.", "error")
+        return redirect(url_for("desk"))
+
+    staff = get_current_user()
+    now = datetime.utcnow()
+    claim.status = "Collected"
+    claim.collected_at = now
+    claim.released_by = staff
+    claim.handover_code = None
+    claim.item.status = "Resolved"
+    claim.item.custody = "released"
+    for other in Claim.query.filter(
+        Claim.item_id == claim.item_id, Claim.id != claim.id,
+        Claim.status.in_(("Pending", "Approved")),
+    ).all():
+        other.status = "Rejected"
+        other.decided_at = now
+        other.handover_code = None
+    log_custody(claim.item, f"Released to {claim.claimant.name} ({claim.claimant.email})", staff)
+    db.session.commit()
+    flash(f"Released {claim.item.title} to {claim.claimant.name}.", "success")
+    return redirect(url_for("desk"))
+
+
+@app.post("/admin/users/<int:user_id>/staff")
+@admin_required
+def toggle_staff(user_id):
+    user = db.get_or_404(User, user_id)
+    user.is_staff = not user.is_staff
+    db.session.commit()
+    flash(f"{user.name} {'can now' if user.is_staff else 'can no longer'} work the security desk.", "success")
+    return redirect(url_for("admin_dashboard"))
 
 
 # A pair below this is not worth showing. The two reports the matches page
@@ -1072,6 +1327,7 @@ def admin_dashboard():
         stats=stats,
         items=items,
         user_count=User.query.count(),
+        users=User.query.order_by(User.created_at.desc()).limit(50).all(),
         pending_claims=Claim.query.filter_by(status="Pending").count(),
         query=query,
         selected_status=status,

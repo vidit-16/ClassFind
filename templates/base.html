@@ -30,6 +30,7 @@
     {% if current_user %}
       <a class="{% if request.endpoint == 'claims' %}active{% endif %}" href="{{ url_for('claims') }}">Claims{% if incoming_claim_count or outgoing_claim_count %} <span class="count-badge">{{ incoming_claim_count + outgoing_claim_count }}</span>{% endif %}</a>
       <a class="{% if request.endpoint == 'profile' %}active{% endif %}" href="{{ url_for('profile') }}">My Reports</a>
+      {% if current_user.works_desk %}<a class="{% if request.endpoint == 'desk' %}active{% endif %}" href="{{ url_for('desk') }}">Desk</a>{% endif %}
       {% if current_user.is_admin %}<a class="{% if request.endpoint == 'admin_dashboard' %}active{% endif %}" href="{{ url_for('admin_dashboard') }}">Admin</a>{% endif %}
       <form method="post" action="{{ url_for('logout') }}" class="logout-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="nav-logout" type="submit">Sign out</button></form>
     {% else %}

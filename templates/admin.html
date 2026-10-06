@@ -1,5 +1,23 @@
 {% extends "base.html" %}
-{% block title %}Admin Dashboard — ClassFind{% endblock %}
+{% block title %}Admin Dashboard — ClassFind
+<section class="results-header">
+  <div><p class="section-kicker">ACCOUNTS</p><h2>Security desk staff</h2></div>
+  <span class="queue-note">Staff receive items, review claims and release items at the desk</span>
+</section>
+<section class="admin-panel">
+  <div class="admin-table">
+    <div class="admin-row admin-head"><span>Account</span><span>Role</span><span>Joined</span><span>Desk access</span></div>
+    {% for user in users %}
+    <div class="admin-row">
+      <span><strong>{{ user.name }}</strong><small>{{ user.email }}</small></span>
+      <span>{% if user.is_admin %}Admin{% elif user.is_staff %}Desk staff{% else %}Student{% endif %}</span>
+      <span>{{ user.created_at.strftime("%d %b %Y") }}</span>
+      <span>{% if not user.is_admin %}<form method="post" action="{{ url_for('toggle_staff', user_id=user.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="inline-action{% if user.is_staff %} danger{% endif %}" type="submit">{{ "Remove desk access" if user.is_staff else "Make desk staff" }}</button></form>{% else %}Always{% endif %}</span>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
 {% block content %}
 <section class="page-heading admin-heading">
   <div>
