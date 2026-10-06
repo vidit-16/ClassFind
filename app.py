@@ -3,7 +3,6 @@ import re
 from datetime import datetime
 from hmac import compare_digest
 from secrets import token_urlsafe
-from urllib.parse import urlparse
 from difflib import SequenceMatcher
 from functools import wraps
 from pathlib import Path
@@ -149,7 +148,7 @@ def apply_security_headers(response):
         "style-src 'self' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "script-src 'self'; "
-        "img-src 'self' data: https: http:; "
+        "img-src 'self' data: https:; "
         "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
     )
     if request.is_secure:
@@ -338,13 +337,6 @@ def allowed_file(filename):
         "." in filename
         and filename.rsplit(".", 1)[1].lower() in app.config["ALLOWED_EXTENSIONS"]
     )
-
-
-def is_safe_image_url(value):
-    if not value:
-        return True
-    parsed = urlparse(value)
-    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
 def save_uploaded_image(file_storage):
@@ -591,13 +583,9 @@ def report():
         category = request.form.get("category", "").strip()
         location = request.form.get("location", "").strip()
         status = request.form.get("status", "").strip()
-        image_url = request.form.get("image_url", "").strip()
 
         if not all([title, description, category, location, status]):
             flash("Please fill in every required field.", "error")
-            return render_template("report.html")
-        if image_url and not is_safe_image_url(image_url):
-            flash("Image URL must start with http:// or https://.", "error")
             return render_template("report.html")
         if status not in {"Lost", "Found"}:
             flash("Choose either Lost or Found.", "error")
@@ -620,7 +608,7 @@ def report():
             reporter_name=user.name,
             contact=user.email,
             owner_id=user.id,
-            image_url=uploaded_url or image_url or None,
+            image_url=uploaded_url,
         )
         db.session.add(item)
         db.session.commit()
@@ -662,13 +650,9 @@ def edit_item(item_id):
         item.category = request.form.get("category", "").strip()
         item.location = request.form.get("location", "").strip()
         status = request.form.get("status", "").strip()
-        image_url = request.form.get("image_url", "").strip()
 
         if not all([item.title, item.description, item.category, item.location, status]):
             flash("Please fill in every required field.", "error")
-            return render_template("edit.html", item=item)
-        if image_url and not is_safe_image_url(image_url):
-            flash("Image URL must start with http:// or https://.", "error")
             return render_template("edit.html", item=item)
         if status not in {"Lost", "Found", "Resolved"}:
             flash("Choose Lost, Found or Resolved.", "error")
@@ -688,10 +672,6 @@ def edit_item(item_id):
                 return render_template("edit.html", item=item)
             delete_image(item.image_url)
             item.image_url = new_url
-        elif image_url:
-            if item.image_url and item.image_url != image_url:
-                delete_image(item.image_url)
-            item.image_url = image_url
 
         db.session.commit()
         flash("Report updated successfully.", "success")

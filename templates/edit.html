@@ -37,7 +37,6 @@
       <label>Upload a new image <span class="optional">(max 5 MB)</span>
         <input type="file" name="image_file" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp">
       </label>
-      <label>Or use an image URL <span class="optional">(optional)</span><input type="url" name="image_url" placeholder="https://..."></label>
     </div>
     <div class="form-actions"><a class="secondary-btn" href="{{ url_for('item_detail', item_id=item.id) }}">Cancel</a><button class="primary-btn" type="submit">Save changes <span>→</span></button></div>
   </form>

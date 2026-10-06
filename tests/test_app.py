@@ -69,7 +69,7 @@ class ClassFindTestCase(unittest.TestCase):
             follow_redirects=True,
         )
 
-    def report(self, title, description, category, location, status, image_url=""):
+    def report(self, title, description, category, location, status):
         return self.post(
             "/report",
             data={
@@ -78,7 +78,6 @@ class ClassFindTestCase(unittest.TestCase):
                 "category": category,
                 "location": location,
                 "status": status,
-                "image_url": image_url,
             },
             follow_redirects=True,
         )
@@ -200,22 +199,32 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertNotIn(b"alice@example.com", response.data)
         self.assertIn(b"Sign in to see contact", response.data)
 
-    def test_bad_image_url_is_rejected(self):
+    def test_a_posted_image_url_is_ignored(self):
+        """The form no longer has the field, and a hand-made request cannot bring it back."""
         self.register()
-        response = self.post(
-            "/report",
-            data={
-                "title": "Unsafe image",
-                "description": "Testing URL validation",
-                "category": "Other",
-                "location": "Lab 1",
-                "status": "Lost",
-                "image_url": "javascript:alert(1)",
-            },
-            follow_redirects=True,
-        )
+        fields = {
+            "title": "Linked image",
+            "description": "Testing that links are not stored",
+            "category": "Other",
+            "location": "Lab 1",
+            "status": "Lost",
+            "image_url": "https://example.com/tracker.png",
+        }
+        response = self.post("/report", data=fields, follow_redirects=True)
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Image URL must start with http:// or https://.", response.data)
+        self.assertNotIn(b"example.com/tracker.png", response.data)
+
+        with app.app_context():
+            item = Item.query.filter_by(title="Linked image").first()
+            self.assertIsNone(item.image_url)
+            item_id = item.id
+
+        self.post(f"/item/{item_id}/edit", data=fields, follow_redirects=True)
+        with app.app_context():
+            self.assertIsNone(db.session.get(Item, item_id).image_url)
+
+        self.assertNotIn(b'name="image_url"', self.client.get("/report").data)
+        self.assertNotIn(b'name="image_url"', self.client.get(f"/item/{item_id}/edit").data)
 
     def test_edit_and_image_upload(self):
         self.register()
