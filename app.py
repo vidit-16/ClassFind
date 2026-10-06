@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import re
@@ -172,6 +173,8 @@ RATE_LIMITS = {
     # Each parse may call the model, which costs a request.
     "parse_report": (30, 60 * 60),
     "parse_retrace": (30, 60 * 60),
+    # Each clip is sent to Gemini.
+    "voice": (40, 60 * 60),
 }
 app.config["RATE_LIMITS_ENABLED"] = True
 _rate_hits = {}
@@ -1474,6 +1477,32 @@ def reject_claim(claim_id):
     return redirect(url_for("desk"))
 
 
+# Words that mark a Hinglish or Kanglish sentence and carry no item details.
+MIXED_WORDS = {
+    "mujhe", "mera", "meri", "mere", "maine", "humne", "ek", "mein", "me", "hai", "tha", "thi", "ho",
+    "mila", "mili", "mile", "gaya", "gayi", "kho", "gum", "ko", "ka", "ki", "ke", "se", "par", "pe", "aaj",
+    "kal", "yeh", "ye", "woh", "wo", "nanna", "nange", "nanu", "ondu", "alli", "sikkitu", "sikkide",
+    "hoyitu", "kaledu", "kalkonde", "ivattu", "ninne", "hatra", "hathra", "andar", "bahar", "paas",
+}
+
+
+def parse_mixed_rules(text, status):
+    """A Hinglish or Kanglish sentence without a model: drop the joining words and the places."""
+    words = [w for w in re.findall(r"[\w']+", text) if w.lower() not in MIXED_WORDS]
+    _, rest = campus.split_search(" ".join(words))
+    title = " ".join(w for w in rest.split() if w not in STOP_WORDS)[:80].strip()
+    first = campus.find_places(text)
+    category = next((name for name, keys in CATEGORY_WORDS.items()
+                     if any(re.search(rf"\b{re.escape(k)}\b", title.lower()) for k in keys)), "Other")
+    return {
+        "title": title[:1].upper() + title[1:] if title else "",
+        "description": text.strip()[:1000],
+        "category": category,
+        "location": first[0]["words"].title() if first else "",
+        "status": status,
+    }
+
+
 REPORT_CATEGORIES = [
     "Electronics", "Books & Notes", "Wallet & ID", "Keys",
     "Clothing", "Stationery", "Accessories", "Other",
@@ -1490,6 +1519,23 @@ CATEGORY_WORDS = {
 }
 
 
+LANGUAGES_NOTE = (
+    "The student may write or speak in English, Hindi, Kannada, Hinglish, Kanglish or a mix. "
+    "Always reply in English. Found means they found or picked up something (found, mila, mili, "
+    "mil gaya, sikkitu, sikkide); Lost means they lost it (lost, kho gaya, gum gaya, kaledu hoyitu). "
+)
+REPORT_PROMPT = (
+    "Extract a campus lost-and-found report. " + LANGUAGES_NOTE +
+    "Reply with JSON only: "
+    '{"title": the item in one to four English words, e.g. "Key" or "Black water bottle", '
+    '"description": one or two English sentences describing the item for whoever might own it, using '
+    "only details the student gave (colour, brand, size, marks, what was with it); leave out the place "
+    'and phrases like "I found", '
+    f'"category": one of {REPORT_CATEGORIES}, "location": the place on campus in English or "", '
+    '"status": "Lost" or "Found"}. Do not invent details.'
+)
+
+
 def parse_report_rules(text):
     """Fill the report form from one sentence without a model.
 
@@ -1498,7 +1544,10 @@ def parse_report_rules(text):
     preposition become the location.
     """
     lowered = text.lower()
-    status = "Found" if re.search(r"\b(found|picked up|someone left|left behind)\b", lowered) else "Lost"
+    found_words = r"\b(found|picked up|someone left|left behind|mila|mili|mile|mil gaya|mil gayi|milgaya|sikkitu|sikkide|sikkid[ae])\b"
+    status = "Found" if re.search(found_words, lowered) else "Lost"
+    if set(lowered.split()) & MIXED_WORDS and len(set(lowered.split()) & MIXED_WORDS) >= 2:
+        return parse_mixed_rules(text, status)
     category = "Other"
     for name, words in CATEGORY_WORDS.items():
         if any(re.search(rf"\b{re.escape(word)}\b", lowered) for word in words):
@@ -1553,12 +1602,7 @@ def parse_report_with_model(text, prompt=None):
     if not provider:
         return None
     url, key, model = provider
-    prompt = prompt or (
-        "Extract a campus lost-and-found report from the student's message. Reply with JSON only: "
-        '{"title": short item name, "description": the useful details, '
-        f'"category": one of {REPORT_CATEGORIES}, "location": the place on campus or "", '
-        '"status": "Lost" or "Found"}. Do not invent details that are not in the message.'
-    )
+    prompt = prompt or REPORT_PROMPT
     body = json.dumps({
         "model": model,
         "temperature": 0,
@@ -1610,8 +1654,8 @@ def parse_report():
 
 
 RETRACE_PROMPT = (
-    "A student describes, possibly in Kannada, Hindi or English, what they lost and where they went "
-    "on campus. Reply with JSON only: "
+    "A student describes what they lost and where they went on campus. " + LANGUAGES_NOTE +
+    "Reply with JSON only: "
     '{"item": the lost item in a few English words or "", '
     '"places": the campus places they mention, in the order they went, each in English, '
     '"when": "today", "yesterday" or "week"}. '
@@ -1632,9 +1676,10 @@ def parse_retrace_rules(text):
     return {"item": item, "places": [text], "when": when}
 
 
-def plan_retrace(text):
-    """Turn a sentence into Retrace's stops, words and time window."""
-    parsed = parse_report_with_model(text, RETRACE_PROMPT)
+def plan_retrace(text, parsed=None):
+    """Turn a sentence (or what the model already made of it) into Retrace's stops, words and time."""
+    if parsed is None:
+        parsed = parse_report_with_model(text, RETRACE_PROMPT)
     source = "model" if isinstance(parsed, dict) else "rules"
     if source == "rules":
         parsed = parse_retrace_rules(text)
@@ -1662,6 +1707,119 @@ def parse_retrace():
     if len(text) < 3:
         return {"error": "Say where you went and what you lost."}, 400
     return plan_retrace(text)
+
+
+VOICE_PROMPT = (
+    "Listen to a student talking to a campus lost-and-found app. " + LANGUAGES_NOTE +
+    "Reply with JSON only: "
+    '{"transcript": what they said, in the script they spoke, '
+    '"english": the same in plain English, '
+    '"status": "Lost" or "Found", '
+    '"title": the item in one to four English words or "", '
+    '"description": one or two English sentences describing the item for whoever might own it, using only '
+    "details they gave (colour, brand, size, marks); no place and no \"I found\", "
+    f'"category": one of {REPORT_CATEGORIES}, '
+    '"location": where the item was, in English, or "", '
+    '"places": every campus place they mention, in English, in the order they went there, '
+    '"when": "today", "yesterday" or "week"}. Do not invent anything they did not say.'
+)
+VOICE_MAX_BYTES = 2 * 1024 * 1024
+GEMINI_AUDIO_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+
+def hear_with_gemini(audio):
+    """Gemini listens to the clip and fills VOICE_PROMPT. None without a key or on any failure.
+
+    Sending the audio, rather than text from the browser, is what lets one
+    request understand Kannada, Hindi, English and any mix of them.
+    """
+    key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not key:
+        return None
+    model = os.getenv("GEMINI_AUDIO_MODEL", "gemini-2.5-flash")
+    body = json.dumps({
+        "contents": [{"parts": [
+            {"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(audio).decode()}},
+            {"text": VOICE_PROMPT},
+        ]}],
+        "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
+    }).encode()
+    request_ = urllib.request.Request(
+        GEMINI_AUDIO_URL.format(model=model), data=body, method="POST",
+        headers={"x-goog-api-key": key, "Content-Type": "application/json", "User-Agent": "ClassFind/3.0"},
+    )
+    try:
+        with urllib.request.urlopen(request_, timeout=25) as response:
+            reply = json.loads(response.read())
+        content = reply["candidates"][0]["content"]["parts"][0]["text"].strip()
+        content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content)
+        heard = json.loads(content)
+        return heard if isinstance(heard, dict) else None
+    except (urllib.error.URLError, TimeoutError, KeyError, IndexError, ValueError):
+        app.logger.warning("Gemini could not read the voice clip; using the browser's text instead.")
+        return None
+
+
+def search_from(heard_text, item, places_said):
+    """A spoken search: the words to look for and, if one place or one group was named, that place."""
+    place = ""
+    for phrase in places_said:
+        mentions = campus.find_places(phrase) if isinstance(phrase, str) else []
+        if mentions:
+            ids = mentions[0]["ids"]
+            group = next((name for name, members in campus.GROUPS.items() if members == ids), "")
+            place = ids[0] if len(ids) == 1 else group
+            break
+    if not item:
+        _, item = campus.split_search(heard_text)
+    return {"q": item.strip()[:80], "place": place}
+
+
+@app.post("/api/voice")
+def voice():
+    """One spoken clip, read for Retrace, search or a report.
+
+    The page sends the recording (16 kHz WAV) and, when the browser could
+    caption it, its own text. Gemini hears the recording; if that fails the
+    browser's text goes through the same readers a typed sentence would.
+    """
+    mode = request.form.get("mode", "")
+    if mode not in {"retrace", "search", "report"}:
+        return {"error": "Unknown voice mode."}, 400
+    audio = request.files.get("audio")
+    data = audio.read(VOICE_MAX_BYTES + 1) if audio else b""
+    if len(data) > VOICE_MAX_BYTES:
+        return {"error": "That was too long. Keep it under half a minute."}, 413
+    captions = request.form.get("transcript", "").strip()[:600]
+    heard = hear_with_gemini(data) if data[:4] == b"RIFF" else None
+    if heard is None and len(captions) < 3:
+        return {"error": "Couldn't make that out. Try again, or type it."}, 422
+
+    def text_of(name):
+        value = heard.get(name) if heard else ""
+        return value.strip() if isinstance(value, str) else ""
+
+    said = text_of("transcript") or captions
+    english = text_of("english") or said
+    places_said = [p for p in (heard.get("places") if heard and isinstance(heard.get("places"), list) else [])
+                   if isinstance(p, str)]
+    result = {"heard": said, "source": "gemini" if heard else "browser"}
+    if mode == "retrace":
+        parsed = None
+        if heard:
+            parsed = {"item": text_of("title"), "places": places_said or [english],
+                      "when": heard.get("when")}
+        result.update(plan_retrace(english, parsed))
+        result["source"] = "gemini" if heard else result["source"]
+    elif mode == "search":
+        result.update(search_from(english, text_of("title"), places_said or [english]))
+    else:
+        if heard:
+            fields = clean_parsed_report(heard, english)
+        else:
+            fields = clean_parsed_report(parse_report_with_model(said), said)
+        result["fields"] = fields
+    return result
 
 
 ALERT_SCORE = 50

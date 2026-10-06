@@ -271,3 +271,9 @@ body::after{content:"";position:fixed;z-index:-1;width:420px;height:420px;right:
 .invite-banner form{display:inline}.invite-banner .actions{display:flex;gap:8px}
 .pending-invites{margin:0 0 18px;padding:0;list-style:none;display:grid;gap:6px;font-size:13px;color:var(--muted)}
 .inline-form{display:inline}
+.search-input-wrap .inline-mic{position:absolute;right:6px;top:50%;transform:translateY(-50%);padding:4px;border:0;background:transparent}
+.search-input-wrap .inline-mic .mic-icon{width:30px;height:30px}.search-input-wrap .inline-mic .mic-icon::before{left:11px;top:6px}.search-input-wrap .inline-mic .mic-icon::after{left:14px;top:20px}
+.campus-search .search-input-wrap input{padding-right:48px}
+.search-heard{margin:-2px 0 0;min-height:0}
+.mic-button.working .mic-icon{background:var(--muted)}
+.picker-choice.needs-pick{color:var(--lost)}

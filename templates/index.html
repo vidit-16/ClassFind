@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}ClassFind — Lost & Found{% endblock %}
 {% block content %}
-<section class="campus" data-map-feed="{{ url_for('map_feed') }}" data-campus="{{ url_for('static', filename='campus.json') }}">
+<section class="campus" data-voice-url="{{ url_for('voice') }}" data-map-feed="{{ url_for('map_feed') }}" data-campus="{{ url_for('static', filename='campus.json') }}">
   <div class="campus-map" data-hotspots="{{ 'on' if map_data.hotspots else 'off' }}">
     {% include "_campus_map.html" %}
     <div class="map-card" hidden></div>
@@ -20,13 +20,8 @@
 
     <div class="retrace-pane" hidden data-retrace="{{ url_for('retrace') }}" data-report="{{ url_for('report') }}">
       <p class="retrace-help">Tap the places you went, in order. Paths count too. ClassFind walks your route and shows what was found along it.</p>
-      <div class="voice-box" hidden data-parse="{{ url_for('parse_retrace') }}">
-        <button type="button" class="mic-button" aria-pressed="false"><span class="mic-icon" aria-hidden="true"></span><span class="mic-label">Or just say it</span></button>
-        <select class="voice-lang" aria-label="Language you'll speak">
-          <option value="en-IN">English</option>
-          <option value="kn-IN">ಕನ್ನಡ</option>
-          <option value="hi-IN">हिन्दी</option>
-        </select>
+      <div class="voice-box">
+        <button type="button" class="mic-button" data-voice="retrace" hidden aria-pressed="false"><span class="mic-icon" aria-hidden="true"></span><span class="mic-label">Or just say it</span></button>
         <p class="voice-heard" aria-live="polite"></p>
       </div>
       <ol class="retrace-stops" aria-label="Your route"></ol>
@@ -44,7 +39,9 @@
       <label class="search-input-wrap">
         <span aria-hidden="true">⌕</span>
         <input name="q" value="{{ query }}" placeholder="“black wallet”, “mech parking”, “CS lab”…" autocomplete="off" aria-label="Search reports">
+        <button type="button" class="mic-button inline-mic" data-voice="search" hidden aria-pressed="false" aria-label="Search by voice"><span class="mic-icon" aria-hidden="true"></span></button>
       </label>
+      <p class="voice-heard search-heard" aria-live="polite"></p>
       <input type="hidden" name="place" value="{{ selected_place }}">
       <div class="filter-row">
         <select name="status" aria-label="Filter by status">

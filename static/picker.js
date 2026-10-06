@@ -75,6 +75,16 @@
     }
   }
 
+  // A place that could be several, like "canteen", must be settled on the map
+  // before the report is published.
+  form.addEventListener("submit", (event) => {
+    if (placeInput.value || !svg.querySelector(".candidate")) return;
+    event.preventDefault();
+    choice.textContent = `${choice.textContent.replace(/ Pick one to publish\.$/, "")} Pick one to publish.`;
+    choice.classList.add("needs-pick");
+    picker.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+
   location.addEventListener("input", () => {
     window.clearTimeout(timer);
     timer = window.setTimeout(guess, 350);
