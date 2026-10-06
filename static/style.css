@@ -264,3 +264,10 @@ body::after{content:"";position:fixed;z-index:-1;width:420px;height:420px;right:
 .voice-heard{flex-basis:100%;margin:0;color:var(--muted);font-size:13px;font-style:italic;min-height:1em}
 .compact-mic{padding:7px 12px 7px 7px}.compact-mic .mic-icon{width:22px;height:22px}.compact-mic .mic-icon::before{left:7px;top:4px;width:8px;height:10px}.compact-mic .mic-icon::after{left:10px;top:15px;height:3px}
 @media(prefers-reduced-motion:reduce){.mic-button.listening .mic-icon{animation:none}}
+.route-alt{fill:none;stroke:var(--route);stroke-width:4;stroke-dasharray:2 9;stroke-linecap:round;opacity:.55}
+.admin-accounts{margin-top:56px}
+.invite-form{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}.invite-form input{flex:1 1 260px;width:auto}
+.invite-banner{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;margin-bottom:20px;border-radius:14px;background:var(--soft);border:1px solid #c9dccf}
+.invite-banner form{display:inline}.invite-banner .actions{display:flex;gap:8px}
+.pending-invites{margin:0 0 18px;padding:0;list-style:none;display:grid;gap:6px;font-size:13px;color:var(--muted)}
+.inline-form{display:inline}

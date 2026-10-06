@@ -132,10 +132,23 @@
 {% else %}
 <div class="empty-state empty-dashboard"><div class="empty-icon">⌕</div><p class="section-kicker">QUEUE CLEAR</p><h3>No reports match those filters.</h3><p>Reset the filters to view the latest activity.</p><a class="secondary-btn" href="{{ url_for('admin_dashboard') }}">View all reports</a></div>
 {% endif %}
-<section class="results-header">
+<section class="results-header admin-accounts">
   <div><p class="section-kicker">ACCOUNTS</p><h2>Security desk staff</h2></div>
   <span class="queue-note">Staff receive items, review claims and release items at the desk</span>
 </section>
+<form class="invite-form" method="post" action="{{ url_for('invite_staff') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="email" name="email" required maxlength="160" placeholder="Email of the person to add to the desk" aria-label="Email to invite">
+  <button class="primary-btn compact" type="submit">Send invitation</button>
+</form>
+{% if invites %}
+<ul class="pending-invites">
+  {% for invite in invites %}
+  <li>Invited {{ invite.email }} on {{ invite.created_at.strftime("%d %b") }}, waiting for them to accept ·
+    <form method="post" action="{{ url_for('cancel_invite', invite_id=invite.id) }}" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="inline-action danger" type="submit">Cancel</button></form></li>
+  {% endfor %}
+</ul>
+{% endif %}
 <section class="admin-panel">
   <div class="admin-table">
     <div class="admin-row admin-head"><span>Account</span><span>Role</span><span>Joined</span><span>Desk access</span></div>
@@ -144,7 +157,7 @@
       <span><strong>{{ user.name }}</strong><small>{{ user.email }}</small></span>
       <span>{% if user.is_admin %}Admin{% elif user.is_staff %}Desk staff{% else %}Student{% endif %}</span>
       <span>{{ user.created_at.strftime("%d %b %Y") }}</span>
-      <span>{% if not user.is_admin %}<form method="post" action="{{ url_for('toggle_staff', user_id=user.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="inline-action{% if user.is_staff %} danger{% endif %}" type="submit">{{ "Remove desk access" if user.is_staff else "Make desk staff" }}</button></form>{% else %}Always{% endif %}</span>
+      <span>{% if user.is_admin %}Always{% elif user.is_staff %}<form method="post" action="{{ url_for('toggle_staff', user_id=user.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="inline-action danger" type="submit">Remove desk access</button></form>{% else %}None{% endif %}</span>
     </div>
     {% endfor %}
   </div>

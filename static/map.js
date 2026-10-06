@@ -322,16 +322,28 @@
   let retraceTimer;
   let scanFrame;
 
+  // Cutting through a building or car park counts as this much longer than
+  // walking the same distance on a path, so routes keep to paths when they can.
+  const THROUGH_COST = 3;
+  // Another way between two stops is searched too if it is at most this much longer.
+  const ALT_STRETCH = 1.6;
+
   function buildGraph() {
     graph = campus.nodes.map(() => []);
     campus.edges.forEach(([a, b, length, via]) => {
-      graph[a].push([b, length, via]);
-      graph[b].push([a, length, via]);
+      const cost = placeById(via) ? length * THROUGH_COST : length;
+      graph[a].push([b, cost, via]);
+      graph[b].push([a, cost, via]);
     });
   }
 
+  const edgeKey = (a, b) => (a < b ? `${a}-${b}` : `${b}-${a}`);
+  const pathCost = (path) => path.slice(1).reduce((sum, node, i) => (
+    sum + graph[path[i]].find(([next]) => next === node)[1]), 0);
+
   // Shortest walk from any of `from` to any of `to`, as node indexes.
-  function shortest(from, to) {
+  // `avoid` makes some edges dearer, to find a second, different way.
+  function shortest(from, to, avoid = null) {
     const dist = new Map(from.map((n) => [n, 0]));
     const prev = new Map();
     const done = new Set();
@@ -348,7 +360,7 @@
       }
       done.add(node);
       graph[node].forEach(([next, length]) => {
-        const d = best + length;
+        const d = best + length * (avoid && avoid.has(edgeKey(node, next)) ? 4 : 1);
         if (d < (dist.has(next) ? dist.get(next) : Infinity)) {
           dist.set(next, d);
           prev.set(next, node);
@@ -421,21 +433,31 @@
   // The route as node indexes, and every place and road it goes past.
   function walk() {
     const nodes = [];
+    const alternates = [];
     for (let i = 1; i < stops.length; i += 1) {
       const from = nodes.length ? [nodes[nodes.length - 1], ...stops[i - 1].nodes] : stops[i - 1].nodes;
       const leg = shortest(from, stops[i].nodes);
+      // The other likely way: the shortest walk that avoids this leg's edges where it can.
+      const used = new Set(leg.slice(1).map((n, k) => edgeKey(leg[k], n)));
+      const other = shortest(from, stops[i].nodes, used);
+      const shared = other.slice(1).filter((n, k) => used.has(edgeKey(other[k], n))).length;
+      if (other.length > 1 && shared < (other.length - 1) * 0.6 && pathCost(other) <= pathCost(leg) * ALT_STRETCH) {
+        alternates.push(other);
+      }
       if (nodes.length && leg[0] === nodes[nodes.length - 1]) leg.shift();
       nodes.push(...leg);
     }
     const passed = new Set();
-    const onPath = new Set(nodes);
+    const onPath = new Set([...nodes, ...alternates.flat()]);
     const samples = [];
-    for (let i = 1; i < nodes.length; i += 1) {
-      const [ax, ay] = campus.nodes[nodes[i - 1]];
-      const [bx, by] = campus.nodes[nodes[i]];
-      const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
-      for (let k = 0; k <= steps; k += 1) samples.push([ax + ((bx - ax) * k) / steps, ay + ((by - ay) * k) / steps]);
-    }
+    [nodes, ...alternates].forEach((route) => {
+      for (let i = 1; i < route.length; i += 1) {
+        const [ax, ay] = campus.nodes[route[i - 1]];
+        const [bx, by] = campus.nodes[route[i]];
+        const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
+        for (let k = 0; k <= steps; k += 1) samples.push([ax + ((bx - ax) * k) / steps, ay + ((by - ay) * k) / steps]);
+      }
+    });
     campus.places.forEach((place) => {
       const [x0, y0, x1, y1] = boxOf(place.outline);
       const near = samples.some(([x, y]) => Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(y0 - y, 0, y - y1)) <= PASS_DISTANCE);
@@ -444,12 +466,14 @@
         graph[d].some(([next, length]) => length <= DOOR_REACH && onPath.has(next)));
       if (near || atDoor) passed.add(place.id);
     });
-    for (let i = 1; i < nodes.length; i += 1) {
-      const edge = graph[nodes[i - 1]].find(([next]) => next === nodes[i]);
-      if (edge) passed.add(edge[2]);
-    }
+    [nodes, ...alternates].forEach((route) => {
+      for (let i = 1; i < route.length; i += 1) {
+        const edge = graph[route[i - 1]].find(([next]) => next === route[i]);
+        if (edge) passed.add(edge[2]);
+      }
+    });
     stops.forEach((stop) => passed.delete(stop.id));
-    return { nodes, passed: [...passed] };
+    return { nodes, alternates, passed: [...passed] };
   }
 
   function drawRoute() {
@@ -463,7 +487,11 @@
       const el = svg.querySelector(`.place[data-place="${stop.id}"]`);
       if (el) el.classList.add("on-route");
     });
-    const { nodes } = walk();
+    const { nodes, alternates } = walk();
+    alternates.forEach((route) => {
+      const d = route.map((n, i) => `${i ? "L" : "M"}${campus.nodes[n].join(",")}`).join(" ");
+      routeLayer.append(svgEl("path", { class: "route-alt", d }));
+    });
     if (nodes.length > 1) {
       const d = nodes.map((n, i) => `${i ? "L" : "M"}${campus.nodes[n].join(",")}`).join(" ");
       const line = svgEl("path", { class: "route-line", d });
