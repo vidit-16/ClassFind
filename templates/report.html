@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Report Item — ClassFind{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='picker.js') }}"></script>{% endblock %}
 {% block content %}
 <section class="form-wrap wide-form">
   <div class="form-intro form-intro-split">
@@ -30,10 +31,11 @@
         </div>
         <label>Description *<textarea name="description" required maxlength="1000" rows="6" placeholder="Colour, brand, markings, stickers, model, or anything else that helps identify it."></textarea></label>
         <div class="field-grid">
-          <label>Location *<input name="location" required maxlength="120" placeholder="e.g. BIT Library, 2nd floor"></label>
-          <label>Report type *<select name="status" required><option value="">Choose one</option><option value="Lost">I lost this item</option><option value="Found">I found this item</option></select></label>
+          <label>Where exactly? *<input name="location" required maxlength="120" placeholder="e.g. CS lab, 3rd floor"></label>
+          <label>Report type *<select name="status" required><option value="">Choose one</option><option value="Lost" {% if request.args.status == "Lost" %}selected{% endif %}>I lost this item</option><option value="Found" {% if request.args.status == "Found" %}selected{% endif %}>I found this item</option></select></label>
         </div>
       </div>
+      {% with picked_place="", picked_side="inside" %}{% include "_place_picker.html" %}{% endwith %}
       <div class="form-section">
         <p class="section-kicker">IMAGE</p>
         <div class="upload-tip"><strong>Tip:</strong> A clear image makes matching easier.</div>

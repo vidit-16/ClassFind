@@ -127,6 +127,7 @@ def csrf_token():
 
 
 app.jinja_env.globals["csrf_token"] = csrf_token
+app.jinja_env.globals["campus_map"] = campus.CAMPUS
 
 
 @app.before_request
@@ -834,6 +835,13 @@ def map_summary():
     }
 
 
+@app.get("/api/place")
+def place_lookup():
+    """Which places some location text could mean, for the map picker to highlight."""
+    found = campus.resolve_place(request.args.get("q", "")[:120])
+    return {**found, "names": {i: campus.place_short(i) for i in found["candidates"]}}
+
+
 @app.get("/api/map")
 def map_feed():
     """The map's data as JSON. The home page polls this to stay live."""
@@ -916,7 +924,6 @@ def index():
         selected_status=status,
         selected_place=place,
         selected_place_name=campus.place_short(place) or place.title(),
-        campus_map=campus.CAMPUS,
         map_data=map_summary(),
         sort_order=sort_order,
     )

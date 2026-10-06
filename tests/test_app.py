@@ -593,6 +593,28 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertIn(b'data-badge="mech-parking"', page)
         self.assertIn(b"map.js", page)
 
+    def test_the_place_lookup_names_the_candidates(self):
+        found = self.client.get("/api/place?q=near+the+canteen").get_json()
+        self.assertIsNone(found["place"])
+        self.assertEqual(found["side"], "outside")
+        self.assertEqual(found["names"], {"canteen": "Canteen", "puff-shop": "Puff shop", "nandini": "Nandini"})
+        self.assertEqual(self.client.get("/api/place?q=mesh+parking").get_json()["place"], "mech-parking")
+
+    def test_report_and_edit_forms_show_the_map_picker(self):
+        self.register()
+        page = self.client.get("/report?status=Found").data
+        self.assertIn(b"place-picker", page)
+        self.assertIn(b'value="Found" selected', page)
+        self.post("/report", data={
+            "title": "Umbrella", "description": "Black", "category": "Accessories",
+            "location": "by the bikes", "status": "Found", "place": "p2", "place_side": "outside",
+        })
+        with app.app_context():
+            item_id = Item.query.one().id
+        page = self.client.get(f"/item/{item_id}/edit").data
+        self.assertIn(b'name="place" value="p2"', page)
+        self.assertIn(b'value="outside" checked', page)
+
     def test_desk_columns_are_added_to_an_older_database(self):
         """A database from before the desk gets its columns, and found items count as held."""
         with app.app_context():

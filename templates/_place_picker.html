@@ -1,0 +1,16 @@
+{# Pick where an item was by tapping the campus map. picker.js does the work; without it the text above is used. #}
+<div class="form-section place-picker" data-lookup="{{ url_for('place_lookup') }}">
+  <p class="section-kicker">ON THE MAP</p>
+  <p class="picker-help">Tap the building or road where it was. We'll guess from what you typed above, too.</p>
+  <div class="picker-frame">
+    {% with picker=true %}{% include "_campus_map.html" %}{% endwith %}
+  </div>
+  <div class="picker-state">
+    <p class="picker-choice" aria-live="polite">{% if picked_place %}{{ campus_map.places | selectattr("id", "equalto", picked_place) | map(attribute="name") | first | default(picked_place) }}{% else %}Nothing picked yet.{% endif %}</p>
+    <div class="side-toggle" role="radiogroup" aria-label="Inside or outside">
+      <label><input type="radio" name="place_side" value="inside" {% if picked_side != "outside" %}checked{% endif %}> Inside</label>
+      <label><input type="radio" name="place_side" value="outside" {% if picked_side == "outside" %}checked{% endif %}> Outside or nearby</label>
+    </div>
+  </div>
+  <input type="hidden" name="place" value="{{ picked_place }}">
+</div>

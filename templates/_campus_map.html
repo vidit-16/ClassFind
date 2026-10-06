@@ -19,9 +19,9 @@
   </g>
   <g class="map-places">
     {% for place in campus_map.places %}
-    {% set counts = map_data.places.get(place.id, {}) %}
+    {% set counts = map_data.places.get(place.id, {}) if not picker else {} %}
     {% set box = place.box %}
-    <g class="place kind-{{ place.kind }}{% if place.id == selected_place %} selected{% endif %}" data-place="{{ place.id }}"
+    <g class="place kind-{{ place.kind }}{% if place.id == (picked_place if picker else selected_place) %} selected{% endif %}" data-place="{{ place.id }}"
        tabindex="0" role="button" aria-label="{{ place.name }}{% if counts.found %}, {{ counts.found }} found{% endif %}{% if counts.lost %}, {{ counts.lost }} lost{% endif %}">
       <title>{{ place.name }}</title>
       <polygon class="place-shape" points="{{ place.points }}"/>
@@ -30,6 +30,7 @@
     </g>
     {% endfor %}
   </g>
+  {% if not picker %}
   <g class="map-badges" aria-hidden="true">
     {% for place in campus_map.places %}
     {% set counts = map_data.places.get(place.id, {}) %}
@@ -52,4 +53,5 @@
     </g>
   </g>
   <g class="map-pins"></g>
+  {% endif %}
 </svg>

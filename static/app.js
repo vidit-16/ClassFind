@@ -173,7 +173,10 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!response.ok) throw new Error(data.error || "Could not read that.");
         Object.entries(data.fields).forEach(([name, value]) => {
           const field = form.elements.namedItem(name);
-          if (field && value) field.value = value;
+          if (field && value) {
+            field.value = value;
+            field.dispatchEvent(new Event("input", { bubbles: true }));
+          }
         });
         form.querySelectorAll("textarea[maxlength]").forEach((area) => area.dispatchEvent(new Event("input")));
         status.textContent = "Filled in below. Check each field before publishing.";

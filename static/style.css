@@ -213,3 +213,16 @@ body::after{content:"";position:fixed;z-index:-1;width:420px;height:420px;right:
   .campus-stats{margin:0}
 }
 @media(prefers-reduced-motion:reduce){.campus-map *,.result-row a{animation:none!important;transition:none!important}}
+/* Picking a place on the report form */
+.picker-help{margin:0 0 12px;color:var(--muted);font-size:13px}
+.picker-frame .campus-svg{height:440px;background:#eef1ea;border-radius:14px;border:1px solid var(--line)}
+.place-picker{--ground:#eef1ea;--road:#d8dcd4;--block:#e5e8e2;--block-line:#c6ccc4;--bit:#d2e6d9;--bit-line:#86b39a;--park:#eaece7;--gate:#f2d48d;--gate-line:#c9a54e;--label:#334037;--drop:rgba(23,32,25,.11);--badge:#215c43;--heat:#e0693f}
+.place-picker .road-hit{pointer-events:stroke;cursor:pointer}
+.place-picker .road-hit:hover,.place-picker .road-hit.selected{stroke:rgba(33,92,67,.35)}
+.place-picker .place.candidate .place-shape{stroke:var(--heat);stroke-width:3;stroke-dasharray:none;animation:candidate 1.4s ease-in-out infinite}
+@keyframes candidate{50%{stroke-opacity:.35}}
+.picker-state{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-top:12px}
+.picker-choice{margin:0;font-weight:700;color:var(--accent)}
+.side-toggle{display:flex;gap:6px}.side-toggle label{display:flex;align-items:center;gap:6px;margin:0;padding:8px 12px;border:1px solid var(--line);border-radius:999px;font-size:13px;font-weight:600;cursor:pointer}.side-toggle input{width:auto;margin:0}
+.side-toggle label:has(input:checked){border-color:var(--accent);background:var(--soft)}
+@media(max-width:560px){.picker-frame .campus-svg{height:360px}}
