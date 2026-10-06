@@ -24,6 +24,22 @@ same object, with the reasons for each score.
 
 ## What it does
 
+- **Campus map.** The home page opens on a map of BIT: 28 buildings and the
+  roads between them, traced from a hand-drawn sketch. Each building shows how
+  many found items were reported there, the security desk shows how many it
+  holds, and the counts update every 20 seconds. Tapping a building filters the
+  list to it and spreads its reports out as pins.
+- **Retrace.** "Retrace my day" asks where you went, in order. Tap the places
+  (or roads) and the app draws your walk along the campus roads, runs along it,
+  and shows what was found on the way: anything at the places you went into,
+  and whatever was found outside the places you only walked past.
+- **Voice.** Say it instead: "I lost my black wallet, I was in P1, then the
+  canteen, then workshops." The browser turns speech into text (English,
+  Kannada or Hindi), the server reads out the item, places and time, and
+  Retrace fills itself in.
+- **Places from words.** "mech parking", "mechanical parking" and "garage" are
+  the same place; "CS lab" is the Main Block; "canteen" could be three places, so
+  the report form asks which. Misheard words like "mesh parking" still match.
 - **Report** a lost or found item, with category, location and an optional photo.
   The reporter's name and contact come from the signed-in account rather than a
   form field, so they cannot be spoofed by whoever fills the form.
@@ -58,7 +74,7 @@ Found report on four signals, and the score is a weighted sum:
 | --- | ---: | --- |
 | Shared words in title and description | 0.40 | Jaccard overlap of tokens, stop words removed |
 | Title similarity | 0.25 | `difflib.SequenceMatcher` ratio |
-| Shared words in location | 0.15 | Jaccard overlap of tokens |
+| Same place | 0.15 | 1 when both are on the same building or road of the map, else Jaccard overlap of the location words |
 | Reported close together | 0.10 | Falls from 1 to 0 over 14 days |
 | Same category | 0.10 | Exact match |
 
@@ -132,23 +148,29 @@ bundle, and check `/health`, which reports the database as well as the app.
 .venv/Scripts/python.exe -m unittest discover -s tests -v
 ```
 
-56 tests, no network and no AWS account needed. They cover registration and
+83 tests, no network and no AWS account needed. They cover registration and
 sign-in, reporting, search, the security desk flow from drop-off to handover,
 collection codes that are single use and expire, admin access, CSRF
 rejection and the security headers, image upload, pagination across two pages,
-one account failing to edit another's report, and a check that the fast
-matching path returns exactly what a plain double loop returns on the same data.
+one account failing to edit another's report, a check that the fast
+matching path returns exactly what a plain double loop returns on the same data,
+place names (aliases, misspellings, Kannada and Hindi words, places that are
+ambiguous on purpose), the road graph being fully connected, Retrace, and
+turning a spoken sentence into a route.
 CI runs them on every push.
 
 ## Project structure
 
 ```
 ClassFind/
-├── app.py                  config, models, routes, matching
+├── app.py                  config, models, routes, matching, Retrace
+├── campus.py               place names → places on the map
 ├── application.py          WSGI entry point for Elastic Beanstalk
 ├── Procfile                Gunicorn command
 ├── templates/              Jinja templates, including 400/404/500 pages
-├── static/                 style.css, app.js, logo
+├── static/                 style.css, app.js, map.js, picker.js, voice.js,
+│                           campus.json (the map), logo
+├── tools/build_campus.py   writes campus.json: places, roads, road graph
 ├── tests/                  test_app.py, test_quality.py
 ├── aws/                    S3 bucket policy
 ├── docs/screenshots/       images used in this README
@@ -168,6 +190,13 @@ ClassFind/
   from a Let's Encrypt certificate, but plain HTTP keeps working so the site
   stays up if a certificate cannot be issued. Set `FORCE_HTTPS=true` once HTTPS
   is confirmed.
+- **The map is approximate.** It was traced from a sketch, so distances and
+  shapes are close, not surveyed. Retrace counts a building as passed when the
+  route comes within about 30 map units of it or crosses the road to its door.
+- **Voice needs Chrome, Edge or Safari, over HTTPS.** Firefox has no speech
+  recognition, and browsers only allow the microphone on secure pages; there
+  the mic stays hidden and typing works. Chrome sends the audio to Google to
+  recognise it.
 - **Schema changes are manual.** `create_all()` makes missing tables, and
   `backfill_item_owners()` adds the one column that arrived later. Anything
   further needs a real migration tool.

@@ -171,6 +171,7 @@ RATE_LIMITS = {
     "desk_handover": (10, 60),
     # Each parse may call the model, which costs a request.
     "parse_report": (30, 60 * 60),
+    "parse_retrace": (30, 60 * 60),
 }
 app.config["RATE_LIMITS_ENABLED"] = True
 _rate_hits = {}
@@ -210,7 +211,7 @@ def apply_security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "style-src 'self' https://fonts.googleapis.com; "
@@ -1517,13 +1518,13 @@ def llm_provider():
     return None
 
 
-def parse_report_with_model(text):
+def parse_report_with_model(text, prompt=None):
     """Ask an LLM on Gemini, Cerebras or Groq to fill the form. Returns None without a key or on any failure."""
     provider = llm_provider()
     if not provider:
         return None
     url, key, model = provider
-    prompt = (
+    prompt = prompt or (
         "Extract a campus lost-and-found report from the student's message. Reply with JSON only: "
         '{"title": short item name, "description": the useful details, '
         f'"category": one of {REPORT_CATEGORIES}, "location": the place on campus or "", '
@@ -1577,6 +1578,61 @@ def parse_report():
     text = text[:600]
     parsed = parse_report_with_model(text)
     return {"fields": clean_parsed_report(parsed, text), "source": "model" if parsed else "rules"}
+
+
+RETRACE_PROMPT = (
+    "A student describes, possibly in Kannada, Hindi or English, what they lost and where they went "
+    "on campus. Reply with JSON only: "
+    '{"item": the lost item in a few English words or "", '
+    '"places": the campus places they mention, in the order they went, each in English, '
+    '"when": "today", "yesterday" or "week"}. '
+    "Use the place names as said, translated to English; do not add places that are not mentioned."
+)
+WHEN_WORDS = (("week", r"\b(this|last|past) week\b|\bdays? ago\b"), ("yesterday", r"\byesterday\b|ನಿನ್ನೆ|कल"))
+
+
+def parse_retrace_rules(text):
+    """What was lost, where, and when, from one sentence without a model."""
+    lowered = text.lower()
+    when = next((name for name, pattern in WHEN_WORDS if re.search(pattern, lowered)), "today")
+    item = parse_report_rules(text)["title"]
+    item = re.split(r",|(?:i|and|then|was|when|while|went)", item, flags=re.IGNORECASE)[0].strip(" .")
+    # The title rule stops at the first place word; anything left that names a place is not the item.
+    if campus.find_places(item):
+        item = ""
+    return {"item": item, "places": [text], "when": when}
+
+
+def plan_retrace(text):
+    """Turn a sentence into Retrace's stops, words and time window."""
+    parsed = parse_report_with_model(text, RETRACE_PROMPT)
+    source = "model" if isinstance(parsed, dict) else "rules"
+    if source == "rules":
+        parsed = parse_retrace_rules(text)
+    phrases = parsed.get("places") if isinstance(parsed.get("places"), list) else [text]
+    stops = []
+    for phrase in phrases[:12]:
+        if not isinstance(phrase, str):
+            continue
+        for mention in campus.find_places(phrase):
+            ids = mention["ids"]
+            if ids and (not stops or stops[-1]["ids"] != ids):
+                stops.append({"ids": ids, "names": [campus.place_short(i) for i in ids]})
+    if not stops and source == "model":
+        stops = [{"ids": m["ids"], "names": [campus.place_short(i) for i in m["ids"]]}
+                 for m in campus.find_places(text)]
+    item = parsed.get("item") if isinstance(parsed.get("item"), str) else ""
+    when = parsed.get("when") if parsed.get("when") in {"today", "yesterday", "week"} else "today"
+    return {"stops": stops, "item": item.strip()[:80], "when": when, "source": source}
+
+
+@app.post("/api/retrace/parse")
+def parse_retrace():
+    """Read one spoken or typed sentence into a Retrace search."""
+    text = (request.get_json(silent=True) or {}).get("text", "").strip()[:600]
+    if len(text) < 3:
+        return {"error": "Say where you went and what you lost."}, 400
+    return plan_retrace(text)
 
 
 ALERT_SCORE = 50

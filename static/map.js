@@ -364,26 +364,34 @@
     return point.matrixTransform(svg.getScreenCTM().inverse());
   }
 
+  // A stop on the route: a place (any of its doors) or a point on a road.
+  function stopFor(id, tap) {
+    const place = placeById(id);
+    if (place) {
+      const [x0, y0] = boxOf(place.outline);
+      return { id, name: place.short, nodes: place.doors, at: [x0, y0], also: [] };
+    }
+    const road = campus.roads.find((r) => r.id === id);
+    if (!road) return null;
+    const onRoad = new Set();
+    campus.edges.forEach(([a, b, , via]) => { if (via === road.id) { onRoad.add(a); onRoad.add(b); } });
+    const [ax, ay] = road.points[0];
+    const [bx, by] = road.points[road.points.length - 1];
+    const aim = tap || { x: (ax + bx) / 2, y: (ay + by) / 2 };
+    const nearest = [...onRoad].sort((m, n) => {
+      const [mx, my] = campus.nodes[m];
+      const [nx, ny] = campus.nodes[n];
+      return Math.hypot(mx - aim.x, my - aim.y) - Math.hypot(nx - aim.x, ny - aim.y);
+    })[0];
+    return { id, name: road.name.replace(/^./, (c) => c.toLowerCase()), nodes: [nearest], at: campus.nodes[nearest], also: [] };
+  }
+
   function addStop(event) {
     const placeEl = event.target.closest(".place");
     const roadEl = event.target.closest(".road-hit");
     let stop = null;
-    if (placeEl) {
-      const place = placeById(placeEl.dataset.place);
-      const [x0, y0, x1, y1] = boxOf(place.outline);
-      stop = { id: place.id, name: place.short, nodes: place.doors, at: [x0, y0] };
-    } else if (roadEl) {
-      const road = campus.roads.find((r) => r.id === roadEl.dataset.road);
-      const tap = svgPoint(event);
-      const onRoad = new Set();
-      campus.edges.forEach(([a, b, , via]) => { if (via === road.id) { onRoad.add(a); onRoad.add(b); } });
-      const nearest = [...onRoad].sort((m, n) => {
-        const [mx, my] = campus.nodes[m];
-        const [nx, ny] = campus.nodes[n];
-        return Math.hypot(mx - tap.x, my - tap.y) - Math.hypot(nx - tap.x, ny - tap.y);
-      })[0];
-      stop = { id: road.id, name: road.name.replace(/^./, (c) => c.toLowerCase()), nodes: [nearest], at: campus.nodes[nearest] };
-    }
+    if (placeEl) stop = stopFor(placeEl.dataset.place);
+    else if (roadEl) stop = stopFor(roadEl.dataset.road, svgPoint(event));
     if (!stop || (stops.length && stops[stops.length - 1].id === stop.id)) return;
     stops.push(stop);
     showStops();
@@ -496,7 +504,7 @@
     if (!stops.length) return;
     const { passed } = walk();
     const params = new URLSearchParams({
-      stops: stops.map((s) => s.id).join(","),
+      stops: stops.flatMap((s) => [s.id, ...s.also]).join(","),
       passed: passed.join(","),
       since: since().toISOString(),
       q: retraceWords.value.trim(),
@@ -664,6 +672,27 @@
       radio.addEventListener("change", queueRetrace);
     });
     retraceWords.addEventListener("input", queueRetrace);
+
+    // A spoken sentence, read on the server, fills in the whole search.
+    document.addEventListener("classfind:plan", ({ detail }) => {
+      if (!campus) return;
+      if (!retracing) setMode("retrace");
+      stops = [];
+      detail.stops.forEach(({ ids }) => {
+        const stop = stopFor(ids[0]);
+        if (!stop) return;
+        // "Canteen" walks to the BIT Canteen but searches the puff shop and Nandini too.
+        stop.also = ids.slice(1);
+        if (ids.length > 1) stop.name = `${stop.name} (or nearby)`;
+        stops.push(stop);
+      });
+      retraceWords.value = detail.item || "";
+      const when = retracePane.querySelector(`input[name='retrace-since'][value='${detail.when}']`);
+      if (when) when.checked = true;
+      showStops();
+      drawRoute();
+      runRetrace();
+    });
   }
 
 
