@@ -104,6 +104,24 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertEqual(response.headers["X-Frame-Options"], "DENY")
         self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
 
+    def test_force_https_redirects_plain_http(self):
+        app.config["FORCE_HTTPS"] = True
+        self.addCleanup(app.config.update, FORCE_HTTPS=False)
+
+        response = self.client.get("/login?next=/report")
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response.headers["Location"], "https://localhost/login?next=/report")
+
+        response = self.client.post("/login", data={"email": "a@b.co", "password": "x"})
+        self.assertEqual(response.status_code, 308)
+
+        self.assertEqual(self.client.get("/health").status_code, 200)
+        self.assertEqual(self.client.get("/login", base_url="https://localhost").status_code, 200)
+
+    def test_http_is_served_when_force_https_is_off(self):
+        self.assertFalse(app.config["FORCE_HTTPS"])
+        self.assertEqual(self.client.get("/login").status_code, 200)
+
     def test_public_home_and_auth_pages(self):
         self.assertEqual(self.client.get("/").status_code, 200)
         self.assertEqual(self.client.get("/login").status_code, 200)

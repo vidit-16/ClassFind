@@ -50,6 +50,14 @@ Set these environment variables:
 `S3_BUCKET=<bucket name>`
 `AWS_REGION=<bucket region>`
 
+Once the site opens over `https://`, also set:
+
+`FORCE_HTTPS=true`
+
+This redirects every plain-HTTP request to HTTPS and marks the session cookie
+Secure. Leave it unset until HTTPS works: with it on, a deployment that has no
+certificate redirects visitors to a port nothing is listening on.
+
 Set CLASSFIND_ENV and SECRET_KEY before the first deploy. With CLASSFIND_ENV=production
 and no SECRET_KEY the app stops on startup rather than signing sessions with a key
 published in this repository. ADMIN_EMAIL decides which account sees the admin pages.

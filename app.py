@@ -58,10 +58,19 @@ def admin_email(env=None):
     return env.get("ADMIN_EMAIL", "").strip().lower()
 
 
+def env_flag(name, env=None):
+    """True when the named variable is set to 1, true or yes."""
+    env = os.environ if env is None else env
+    return env.get(name, "").strip().lower() in {"1", "true", "yes"}
+
+
 app.config["SECRET_KEY"] = resolve_secret_key()
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = os.getenv("COOKIE_SECURE", "").lower() in {"1", "true", "yes"}
+# FORCE_HTTPS is off by default because a deployment whose certificate could not
+# be issued still has to answer on HTTP. Turn it on once HTTPS is known to work.
+app.config["FORCE_HTTPS"] = env_flag("FORCE_HTTPS")
+app.config["SESSION_COOKIE_SECURE"] = app.config["FORCE_HTTPS"] or env_flag("COOKIE_SECURE")
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 app.config["UPLOAD_FOLDER"] = os.getenv(
     "UPLOAD_FOLDER", str(Path(app.static_folder) / "uploads")
@@ -90,6 +99,23 @@ def csrf_token():
 
 
 app.jinja_env.globals["csrf_token"] = csrf_token
+
+
+@app.before_request
+def redirect_to_https():
+    """Send plain-HTTP requests to HTTPS when FORCE_HTTPS is on.
+
+    Without this a sign-in typed at the http:// address sends the password in
+    the clear. It is done here rather than in nginx because Let's Encrypt
+    renews the certificate by fetching a file over port 80, which nginx answers
+    before the request reaches the app. /health is left alone so a local check
+    over HTTP still sees the app's own answer.
+    """
+    if not app.config["FORCE_HTTPS"] or request.is_secure or request.path == "/health":
+        return
+    target = "https://" + request.url.split("://", 1)[1]
+    # 308 keeps the method and body, so a form posted over HTTP is not replayed as a GET.
+    return redirect(target, code=301 if request.method in {"GET", "HEAD"} else 308)
 
 
 @app.before_request

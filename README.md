@@ -96,7 +96,8 @@ the log, which means sessions end when you restart it.
 | `DATABASE_URL` | SQLite or PostgreSQL connection string | `sqlite:///classfind.db` |
 | `S3_BUCKET` | Bucket for uploaded images | unset, images go to local disk |
 | `AWS_REGION` | Region for that bucket | `ap-south-1` |
-| `COOKIE_SECURE` | Send session cookies only over HTTPS | off |
+| `FORCE_HTTPS` | Redirect HTTP to HTTPS, and send session cookies only over HTTPS | off |
+| `COOKIE_SECURE` | Send session cookies only over HTTPS, without the redirect | off |
 | `UPLOAD_FOLDER` | Where local images are written | `static/uploads` |
 
 ## Deployment
@@ -143,8 +144,10 @@ ClassFind/
 - **Matching is a hint.** A percentage points at pairs worth checking. It does
   not establish ownership, and it cannot match a report to an item nobody has
   posted yet.
-- **The live URL is plain HTTP.** Set `COOKIE_SECURE=1` once the environment is
-  behind HTTPS with a certificate.
+- **HTTP still answers unless you turn it off.** The deployment serves HTTPS
+  from a Let's Encrypt certificate, but plain HTTP keeps working so the site
+  stays up if a certificate cannot be issued. Set `FORCE_HTTPS=true` once HTTPS
+  is confirmed.
 - **Schema changes are manual.** `create_all()` makes missing tables, and
   `backfill_item_owners()` adds the one column that arrived later. Anything
   further needs a real migration tool.
