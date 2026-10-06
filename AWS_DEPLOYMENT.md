@@ -37,9 +37,9 @@ Set the connection string as `DATABASE_URL` in the Elastic Beanstalk environment
 
 Create an Elastic Beanstalk application using the Python platform and deploy this repository.
 
-The included Procfile starts Gunicorn on port 8000:
+The included Procfile starts Gunicorn on port 8000, as one process with eight threads:
 
-`gunicorn --bind 0.0.0.0:8000 application:application`
+`gunicorn --bind 127.0.0.1:8000 --workers 1 --threads 8 --timeout 60 application:application`
 
 Set these environment variables:
 
@@ -49,6 +49,14 @@ Set these environment variables:
 `DATABASE_URL=<RDS connection string>`
 `S3_BUCKET=<bucket name>`
 `AWS_REGION=<bucket region>`
+
+Once the site opens over `https://`, also set:
+
+`FORCE_HTTPS=true`
+
+This redirects every plain-HTTP request to HTTPS and marks the session cookie
+Secure. Leave it unset until HTTPS works: with it on, a deployment that has no
+certificate redirects visitors to a port nothing is listening on.
 
 Set CLASSFIND_ENV and SECRET_KEY before the first deploy. With CLASSFIND_ENV=production
 and no SECRET_KEY the app stops on startup rather than signing sessions with a key
@@ -60,7 +68,10 @@ Open the Elastic Beanstalk URL and then `/health`.
 
 Expected response:
 
-`{"status":"ok","database":"ok"}`
+`{"status":"ok","database":"ok","engine":"postgresql"}`
+
+If `engine` is `sqlite`, `DATABASE_URL` is not reaching the app and reports are
+being written to a file on the instance, which a redeploy erases.
 
 ## 6. Demo flow
 

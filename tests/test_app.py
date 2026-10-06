@@ -69,7 +69,7 @@ class ClassFindTestCase(unittest.TestCase):
             follow_redirects=True,
         )
 
-    def report(self, title, description, category, location, status, image_url=""):
+    def report(self, title, description, category, location, status):
         return self.post(
             "/report",
             data={
@@ -78,7 +78,6 @@ class ClassFindTestCase(unittest.TestCase):
                 "category": category,
                 "location": location,
                 "status": status,
-                "image_url": image_url,
             },
             follow_redirects=True,
         )
@@ -100,9 +99,38 @@ class ClassFindTestCase(unittest.TestCase):
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["database"], "ok")
+        self.assertEqual(response.get_json()["engine"], "sqlite")
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
         self.assertEqual(response.headers["X-Frame-Options"], "DENY")
         self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
+
+    def test_force_https_redirects_plain_http(self):
+        app.config["FORCE_HTTPS"] = True
+        self.addCleanup(app.config.update, FORCE_HTTPS=False)
+
+        response = self.client.get("/login?next=/report")
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response.headers["Location"], "https://localhost/login?next=/report")
+
+        response = self.client.post("/login", data={"email": "a@b.co", "password": "x"})
+        self.assertEqual(response.status_code, 308)
+
+        self.assertEqual(self.client.get("/health").status_code, 200)
+        self.assertEqual(self.client.get("/login", base_url="https://localhost").status_code, 200)
+
+    def test_https_behind_the_proxy_is_not_redirected(self):
+        # nginx forwards HTTPS to the app over HTTP with this header. Without
+        # ProxyFix every such request was redirected to itself, forever.
+        app.config["FORCE_HTTPS"] = True
+        self.addCleanup(app.config.update, FORCE_HTTPS=False)
+
+        response = self.client.get("/login", headers={"X-Forwarded-Proto": "https"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Strict-Transport-Security", response.headers)
+
+    def test_http_is_served_when_force_https_is_off(self):
+        self.assertFalse(app.config["FORCE_HTTPS"])
+        self.assertEqual(self.client.get("/login").status_code, 200)
 
     def test_public_home_and_auth_pages(self):
         self.assertEqual(self.client.get("/").status_code, 200)
@@ -167,22 +195,46 @@ class ClassFindTestCase(unittest.TestCase):
         with app.app_context():
             self.assertEqual(db.session.get(Item, lost.id).status, "Resolved")
 
-    def test_bad_image_url_is_rejected(self):
+    def test_contact_email_is_hidden_from_signed_out_visitors(self):
         self.register()
-        response = self.post(
-            "/report",
-            data={
-                "title": "Unsafe image",
-                "description": "Testing URL validation",
-                "category": "Other",
-                "location": "Lab 1",
-                "status": "Lost",
-                "image_url": "javascript:alert(1)",
-            },
-            follow_redirects=True,
-        )
+        self.report("Blue bottle", "Steel bottle", "Other", "Canteen", "Lost")
+        with app.app_context():
+            item_id = Item.query.filter_by(title="Blue bottle").first().id
+
+        self.assertIn(b"alice@example.com", self.client.get(f"/item/{item_id}").data)
+
+        self.post("/logout", follow_redirects=True)
+        response = self.client.get(f"/item/{item_id}")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Image URL must start with http:// or https://.", response.data)
+        self.assertNotIn(b"alice@example.com", response.data)
+        self.assertIn(b"Sign in to see contact", response.data)
+
+    def test_a_posted_image_url_is_ignored(self):
+        """The form no longer has the field, and a hand-made request cannot bring it back."""
+        self.register()
+        fields = {
+            "title": "Linked image",
+            "description": "Testing that links are not stored",
+            "category": "Other",
+            "location": "Lab 1",
+            "status": "Lost",
+            "image_url": "https://example.com/tracker.png",
+        }
+        response = self.post("/report", data=fields, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"example.com/tracker.png", response.data)
+
+        with app.app_context():
+            item = Item.query.filter_by(title="Linked image").first()
+            self.assertIsNone(item.image_url)
+            item_id = item.id
+
+        self.post(f"/item/{item_id}/edit", data=fields, follow_redirects=True)
+        with app.app_context():
+            self.assertIsNone(db.session.get(Item, item_id).image_url)
+
+        self.assertNotIn(b'name="image_url"', self.client.get("/report").data)
+        self.assertNotIn(b'name="image_url"', self.client.get(f"/item/{item_id}/edit").data)
 
     def test_edit_and_image_upload(self):
         self.register()
@@ -465,6 +517,56 @@ class ClassFindTestCase(unittest.TestCase):
         )
         self.assertIn(b"marked as resolved", response.data)
 
+    def test_claims_follow_the_account_not_the_contact_field(self):
+        """A report whose contact names someone else still belongs to whoever filed it."""
+        self.register("Finder", "finder@example.com")
+        with app.app_context():
+            finder = User.query.filter_by(email="finder@example.com").first()
+            found = Item(
+                title="Grey umbrella",
+                description="Folding umbrella",
+                category="Other",
+                location="Canteen",
+                status="Found",
+                reporter_name="Finder",
+                contact="owner@example.com",
+                owner_id=finder.id,
+            )
+            db.session.add(found)
+            db.session.commit()
+            found_id = found.id
+
+        self.assertIn(b"Grey umbrella", self.client.get("/me").data)
+        response = self.post(
+            f"/item/{found_id}/claim",
+            data={"message": "Trying to claim the report I filed myself."},
+            follow_redirects=True,
+        )
+        self.assertIn(b"You cannot claim your own found report.", response.data)
+
+        self.post("/logout", follow_redirects=True)
+        self.register("Owner", "owner@example.com")
+        self.assertNotIn(b"Grey umbrella", self.client.get("/me").data)
+        self.post(
+            f"/item/{found_id}/claim",
+            data={"message": "That is my umbrella from the canteen."},
+            follow_redirects=True,
+        )
+        with app.app_context():
+            claim_id = Claim.query.filter_by(item_id=found_id).one().id
+
+        # Sharing the contact address does not let the claimant accept their own claim.
+        self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
+        with app.app_context():
+            self.assertEqual(db.session.get(Claim, claim_id).status, "Pending")
+
+        self.post("/logout", follow_redirects=True)
+        self.login("finder@example.com")
+        self.assertIn(b"That is my umbrella", self.client.get("/claims").data)
+        self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
+        with app.app_context():
+            self.assertEqual(db.session.get(Claim, claim_id).status, "Accepted")
+
     def test_faster_matching_returns_what_the_plain_version_would(self):
         """The early exit only skips pairs that could not have cleared the cut-off."""
         self.register()
@@ -520,6 +622,32 @@ class ClassFindTestCase(unittest.TestCase):
         self.report("Blue bottle", "Steel bottle", "Other", "Canteen", "Found")
         with app.app_context():
             self.assertIsNot(cached_matches(), first)
+
+    def test_editing_a_report_refreshes_the_matches(self):
+        self.register()
+        self.report("Black wallet", "Leather wallet", "Wallet & ID", "Library", "Lost")
+        self.report("Wallet", "Leather wallet found", "Wallet & ID", "Library", "Found")
+
+        with app.app_context():
+            before = cached_matches()
+            self.assertEqual(before[0][0].title, "Black wallet")
+            lost_id = before[0][0].id
+
+        self.post(
+            f"/item/{lost_id}/edit",
+            data={
+                "title": "Brown wallet",
+                "description": "Leather wallet",
+                "category": "Wallet & ID",
+                "location": "Library",
+                "status": "Lost",
+            },
+            follow_redirects=True,
+        )
+        with app.app_context():
+            after = cached_matches()
+            self.assertIsNot(after, before)
+            self.assertEqual(after[0][0].title, "Brown wallet")
 
     def test_login_rejects_bad_password(self):
         self.register()

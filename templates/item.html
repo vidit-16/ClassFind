@@ -12,7 +12,11 @@
       <div><span>Last known location</span><strong>⌖ {{ item.location }}</strong></div>
       <div><span>Reported by</span><strong>{{ item.reporter_name }}</strong></div>
       <div><span>Reported on</span><strong>{{ item.created_at.strftime("%d %B %Y") }}</strong></div>
+      {% if current_user %}
       <div><span>Contact</span><strong>{{ item.contact }}</strong></div>
+      {% else %}
+      <div><span>Contact</span><strong><a href="{{ url_for('login', next=request.path) }}">Sign in to see contact</a></strong></div>
+      {% endif %}
     </div>
     {% if can_manage %}
     <div class="detail-actions">

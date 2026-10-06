@@ -3,7 +3,6 @@ import re
 from datetime import datetime
 from hmac import compare_digest
 from secrets import token_urlsafe
-from urllib.parse import urlparse
 from difflib import SequenceMatcher
 from functools import wraps
 from pathlib import Path
@@ -15,10 +14,15 @@ from botocore.exceptions import ClientError
 from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import or_
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
+# nginx terminates HTTPS and forwards to Gunicorn over plain HTTP, setting
+# X-Forwarded-Proto. Trusting that one header is what lets request.is_secure,
+# the FORCE_HTTPS redirect and the HSTS header see a request as HTTPS.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1)
 
 
 def is_production(env=None):
@@ -58,10 +62,19 @@ def admin_email(env=None):
     return env.get("ADMIN_EMAIL", "").strip().lower()
 
 
+def env_flag(name, env=None):
+    """True when the named variable is set to 1, true or yes."""
+    env = os.environ if env is None else env
+    return env.get(name, "").strip().lower() in {"1", "true", "yes"}
+
+
 app.config["SECRET_KEY"] = resolve_secret_key()
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = os.getenv("COOKIE_SECURE", "").lower() in {"1", "true", "yes"}
+# FORCE_HTTPS is off by default because a deployment whose certificate could not
+# be issued still has to answer on HTTP. Turn it on once HTTPS is known to work.
+app.config["FORCE_HTTPS"] = env_flag("FORCE_HTTPS")
+app.config["SESSION_COOKIE_SECURE"] = app.config["FORCE_HTTPS"] or env_flag("COOKIE_SECURE")
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 app.config["UPLOAD_FOLDER"] = os.getenv(
     "UPLOAD_FOLDER", str(Path(app.static_folder) / "uploads")
@@ -73,6 +86,14 @@ app.config["AWS_REGION"] = os.getenv("AWS_REGION", "ap-south-1")
 database_url = os.getenv("DATABASE_URL", "sqlite:///classfind.db")
 if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
+if is_production() and database_url.startswith("sqlite"):
+    # Not fatal, because an environment already running this way would stop
+    # serving on its next deploy. /health reports the engine so it can be seen.
+    app.logger.warning(
+        "DATABASE_URL is not set, so reports are being written to a SQLite file "
+        "on this instance. It is lost whenever the instance is replaced or the "
+        "app is redeployed. Point DATABASE_URL at PostgreSQL."
+    )
 
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -90,6 +111,23 @@ def csrf_token():
 
 
 app.jinja_env.globals["csrf_token"] = csrf_token
+
+
+@app.before_request
+def redirect_to_https():
+    """Send plain-HTTP requests to HTTPS when FORCE_HTTPS is on.
+
+    Without this a sign-in typed at the http:// address sends the password in
+    the clear. It is done here rather than in nginx because Let's Encrypt
+    renews the certificate by fetching a file over port 80, which nginx answers
+    before the request reaches the app. /health is left alone so a local check
+    over HTTP still sees the app's own answer.
+    """
+    if not app.config["FORCE_HTTPS"] or request.is_secure or request.path == "/health":
+        return
+    target = "https://" + request.url.split("://", 1)[1]
+    # 308 keeps the method and body, so a form posted over HTTP is not replayed as a GET.
+    return redirect(target, code=301 if request.method in {"GET", "HEAD"} else 308)
 
 
 @app.before_request
@@ -115,7 +153,7 @@ def apply_security_headers(response):
         "style-src 'self' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "script-src 'self'; "
-        "img-src 'self' data: https: http:; "
+        "img-src 'self' data: https:; "
         "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
     )
     if request.is_secure:
@@ -226,18 +264,24 @@ def get_current_user():
     return db.session.get(User, user_id) if user_id else None
 
 
+def filed_by(user):
+    """Query filter for the reports this account filed.
+
+    The same rule as owns_item(): owner_id decides, and the contact field is
+    consulted only for reports from before the column existed.
+    """
+    return or_(
+        Item.owner_id == user.id,
+        db.and_(Item.owner_id.is_(None), Item.contact.ilike(user.email)),
+    )
+
+
 def pending_claim_counts(user):
     if not user:
         return 0, 0
     incoming = (
         Claim.query.join(Item, Claim.item_id == Item.id)
-        .filter(
-            or_(
-                Item.owner_id == user.id,
-                db.and_(Item.owner_id.is_(None), Item.contact.ilike(user.email)),
-            ),
-            Claim.status == "Pending",
-        )
+        .filter(filed_by(user), Claim.status == "Pending")
         .count()
     )
     outgoing = Claim.query.filter_by(claimant_id=user.id, status="Pending").count()
@@ -306,13 +350,6 @@ def allowed_file(filename):
     )
 
 
-def is_safe_image_url(value):
-    if not value:
-        return True
-    parsed = urlparse(value)
-    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
-
-
 def save_uploaded_image(file_storage):
     if not file_storage or not file_storage.filename:
         return None
@@ -371,7 +408,9 @@ def delete_image(image_url):
 def health():
     try:
         db.session.execute(db.text("SELECT 1"))
-        return {"status": "ok", "database": "ok"}, 200
+        # The engine is named because SQLite and PostgreSQL both answer "ok",
+        # and only one of them survives a redeploy.
+        return {"status": "ok", "database": "ok", "engine": db.engine.dialect.name}, 200
     except Exception:
         db.session.rollback()
         return {"status": "error", "database": "unavailable"}, 503
@@ -520,13 +559,13 @@ def logout():
 def profile():
     user = get_current_user()
     items = (
-        Item.query.filter(Item.contact.ilike(user.email))
+        Item.query.filter(filed_by(user))
         .order_by(Item.created_at.desc())
         .all()
     )
     incoming_claims = (
         Claim.query.join(Item, Claim.item_id == Item.id)
-        .filter(Item.contact.ilike(user.email))
+        .filter(filed_by(user))
         .order_by(Claim.created_at.desc())
         .all()
     )
@@ -555,13 +594,9 @@ def report():
         category = request.form.get("category", "").strip()
         location = request.form.get("location", "").strip()
         status = request.form.get("status", "").strip()
-        image_url = request.form.get("image_url", "").strip()
 
         if not all([title, description, category, location, status]):
             flash("Please fill in every required field.", "error")
-            return render_template("report.html")
-        if image_url and not is_safe_image_url(image_url):
-            flash("Image URL must start with http:// or https://.", "error")
             return render_template("report.html")
         if status not in {"Lost", "Found"}:
             flash("Choose either Lost or Found.", "error")
@@ -584,7 +619,7 @@ def report():
             reporter_name=user.name,
             contact=user.email,
             owner_id=user.id,
-            image_url=uploaded_url or image_url or None,
+            image_url=uploaded_url,
         )
         db.session.add(item)
         db.session.commit()
@@ -626,13 +661,9 @@ def edit_item(item_id):
         item.category = request.form.get("category", "").strip()
         item.location = request.form.get("location", "").strip()
         status = request.form.get("status", "").strip()
-        image_url = request.form.get("image_url", "").strip()
 
         if not all([item.title, item.description, item.category, item.location, status]):
             flash("Please fill in every required field.", "error")
-            return render_template("edit.html", item=item)
-        if image_url and not is_safe_image_url(image_url):
-            flash("Image URL must start with http:// or https://.", "error")
             return render_template("edit.html", item=item)
         if status not in {"Lost", "Found", "Resolved"}:
             flash("Choose Lost, Found or Resolved.", "error")
@@ -652,12 +683,11 @@ def edit_item(item_id):
                 return render_template("edit.html", item=item)
             delete_image(item.image_url)
             item.image_url = new_url
-        elif image_url:
-            if item.image_url and item.image_url != image_url:
-                delete_image(item.image_url)
-            item.image_url = image_url
 
         db.session.commit()
+        # An edit changes neither the counts nor the newest date the cache key
+        # is built from, so the matches would keep showing the old wording.
+        _match_cache["key"] = None
         flash("Report updated successfully.", "success")
         return redirect(url_for("item_detail", item_id=item.id))
 
@@ -702,7 +732,7 @@ def submit_claim(item_id):
     if item.status != "Found":
         flash("Claims can only be submitted for active found items.", "error")
         return redirect(url_for("item_detail", item_id=item.id))
-    if item.contact.lower() == user.email.lower():
+    if owns_item(user, item):
         flash("You cannot claim your own found report.", "error")
         return redirect(url_for("item_detail", item_id=item.id))
 
@@ -734,7 +764,7 @@ def claims():
     user = get_current_user()
     incoming = (
         Claim.query.join(Item, Claim.item_id == Item.id)
-        .filter(Item.contact.ilike(user.email))
+        .filter(filed_by(user))
         .order_by(Claim.created_at.desc())
         .all()
     )
@@ -748,9 +778,7 @@ def claims():
 
 def can_manage_claim(claim):
     user = get_current_user()
-    return bool(user and (
-        user.is_admin or claim.item.contact.lower() == user.email.lower()
-    ))
+    return bool(user and (user.is_admin or owns_item(user, claim.item)))
 
 
 @app.post("/claims/<int:claim_id>/accept")
@@ -934,7 +962,11 @@ _match_cache = {"key": None, "pairs": []}
 
 
 def matches_cache_key():
-    """Changes whenever a report that matching reads is added, edited or removed."""
+    """Changes whenever a report that matching reads is added, removed or changes status.
+
+    An edit to the wording changes none of these, so edit_item() clears the
+    cache itself.
+    """
     counts = dict(
         db.session.query(Item.status, db.func.count(Item.id))
         .filter(Item.status.in_(("Lost", "Found")))
