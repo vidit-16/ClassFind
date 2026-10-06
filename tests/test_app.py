@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import tempfile
@@ -12,6 +13,7 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret"
 
 from app import (
+    parse_report_with_model,
     Tag,
     send_email,
     dashboard_insights,
@@ -768,6 +770,26 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertIn(b"claim-steps", page)
         self.assertIn(b'class="done">Submitted', page)
         self.assertNotIn(b'class="done">Ready to collect', page)
+
+    def test_the_report_model_uses_whichever_provider_has_a_key(self):
+        reply = mock.MagicMock()
+        reply.__enter__.return_value.read.return_value = json.dumps({"choices": [{"message": {
+            "content": '```json\n{"title": "Keys", "status": "Lost"}\n```'}}]}).encode()
+        names = ("GEMINI_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY")
+        for key_name, host in (("GEMINI_API_KEY", "generativelanguage.googleapis.com"),
+                               ("CEREBRAS_API_KEY", "api.cerebras.ai"), ("GROQ_API_KEY", "api.groq.com")):
+            for name in names:
+                os.environ.pop(name, None)
+            os.environ[key_name] = "test-key"
+            self.addCleanup(os.environ.pop, key_name, None)
+            with mock.patch("app.urllib.request.urlopen", return_value=reply) as opened:
+                self.assertEqual(parse_report_with_model("lost keys"), {"title": "Keys", "status": "Lost"})
+            request_ = opened.call_args.args[0]
+            self.assertIn(host, request_.full_url)
+            self.assertEqual(request_.get_header("User-agent"), "ClassFind/2.0")
+        for name in names:
+            os.environ.pop(name, None)
+        self.assertIsNone(parse_report_with_model("lost keys"))
 
     def test_admin_dashboard_and_delete(self):
         self.register_admin()
