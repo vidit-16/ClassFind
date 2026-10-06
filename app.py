@@ -1446,6 +1446,7 @@ def matches():
 @app.route("/admin")
 @admin_required
 def admin_dashboard():
+    escalate_unclaimed_valuables()
     query = request.args.get("q", "").strip()
     status = request.args.get("status", "").strip()
 
