@@ -1274,11 +1274,29 @@ def parse_report_rules(text):
     }
 
 
+# OpenAI-compatible chat endpoints that can fill the report form. Whichever key
+# is set decides the provider; LLM_MODEL overrides the default model.
+LLM_PROVIDERS = (
+    ("CEREBRAS_API_KEY", "https://api.cerebras.ai/v1/chat/completions", "llama-3.3-70b"),
+    ("GROQ_API_KEY", "https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile"),
+)
+
+
+def llm_provider():
+    """(url, key, model) for the first provider with a key set, or None."""
+    for key_name, url, model in LLM_PROVIDERS:
+        key = os.getenv(key_name, "").strip()
+        if key:
+            return url, key, os.getenv("LLM_MODEL", "").strip() or model
+    return None
+
+
 def parse_report_with_model(text):
-    """Ask an LLM on Groq to fill the form. Returns None without a key or on any failure."""
-    key = os.getenv("GROQ_API_KEY", "").strip()
-    if not key:
+    """Ask an LLM on Cerebras or Groq to fill the form. Returns None without a key or on any failure."""
+    provider = llm_provider()
+    if not provider:
         return None
+    url, key, model = provider
     prompt = (
         "Extract a campus lost-and-found report from the student's message. Reply with JSON only: "
         '{"title": short item name, "description": the useful details, '
@@ -1286,19 +1304,24 @@ def parse_report_with_model(text):
         '"status": "Lost" or "Found"}. Do not invent details that are not in the message.'
     )
     body = json.dumps({
-        "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        "model": model,
         "temperature": 0,
         "response_format": {"type": "json_object"},
         "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": text}],
     }).encode()
     request_ = urllib.request.Request(
-        "https://api.groq.com/openai/v1/chat/completions", data=body, method="POST",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        url, data=body, method="POST",
+        # Some providers refuse urllib's default user agent.
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                 "User-Agent": "ClassFind/2.0"},
     )
     try:
         with urllib.request.urlopen(request_, timeout=8) as response:
             reply = json.loads(response.read())
-        return json.loads(reply["choices"][0]["message"]["content"])
+        content = reply["choices"][0]["message"]["content"].strip()
+        # Tolerate a reply wrapped in a ```json fence.
+        content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content)
+        return json.loads(content)
     except (urllib.error.URLError, TimeoutError, KeyError, IndexError, ValueError):
         app.logger.warning("Report parsing by the model failed; using the rules instead.")
         return None
