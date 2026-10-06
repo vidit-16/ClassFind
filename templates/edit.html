@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Edit {{ item.title }} — ClassFind{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='picker.js') }}"></script>{% endblock %}
 {% block content %}
 <section class="form-wrap">
   <div class="form-intro"><div class="hero-topline"><p class="eyebrow">EDIT REPORT</p><span class="live-chip">Saved to your account</span></div>
@@ -20,7 +21,7 @@
       </div>
       <label>Description *<textarea name="description" required maxlength="1000" rows="5">{{ item.description }}</textarea></label>
       <div class="field-grid">
-        <label>Location *<input name="location" required maxlength="120" value="{{ item.location }}"></label>
+        <label>Where exactly? *<input name="location" required maxlength="120" value="{{ item.location }}"></label>
         <label>Status *<select name="status" required>
           <option value="Lost" {% if item.status == "Lost" %}selected{% endif %}>Lost</option>
           <option value="Found" {% if item.status == "Found" %}selected{% endif %}>Found</option>
@@ -28,6 +29,7 @@
         </select></label>
       </div>
     </div>
+    {% with picked_place=item.place or "", picked_side=item.place_side or "inside" %}{% include "_place_picker.html" %}{% endwith %}
     <div class="form-section">
       <p class="section-kicker">IMAGE</p>
       {% if item.image_src %}
