@@ -118,6 +118,16 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertEqual(self.client.get("/health").status_code, 200)
         self.assertEqual(self.client.get("/login", base_url="https://localhost").status_code, 200)
 
+    def test_https_behind_the_proxy_is_not_redirected(self):
+        # nginx forwards HTTPS to the app over HTTP with this header. Without
+        # ProxyFix every such request was redirected to itself, forever.
+        app.config["FORCE_HTTPS"] = True
+        self.addCleanup(app.config.update, FORCE_HTTPS=False)
+
+        response = self.client.get("/login", headers={"X-Forwarded-Proto": "https"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Strict-Transport-Security", response.headers)
+
     def test_http_is_served_when_force_https_is_off(self):
         self.assertFalse(app.config["FORCE_HTTPS"])
         self.assertEqual(self.client.get("/login").status_code, 200)

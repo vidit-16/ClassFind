@@ -14,10 +14,15 @@ from botocore.exceptions import ClientError
 from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import or_
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
+# nginx terminates HTTPS and forwards to Gunicorn over plain HTTP, setting
+# X-Forwarded-Proto. Trusting that one header is what lets request.is_secure,
+# the FORCE_HTTPS redirect and the HSTS header see a request as HTTPS.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1)
 
 
 def is_production(env=None):
