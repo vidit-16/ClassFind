@@ -15,6 +15,13 @@
   <div class="form-layout">
     <form class="report-form" method="post" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-section quick-report" data-parse-url="{{ url_for('parse_report') }}">
+        <p class="section-kicker">QUICK REPORT</p>
+        <label>Describe it in one sentence <span class="optional">(optional)</span>
+          <textarea class="quick-report-text" maxlength="600" rows="2" placeholder="e.g. Lost my black Milton bottle near the library yesterday"></textarea>
+        </label>
+        <div class="quick-report-actions"><button class="secondary-btn quick-report-button" type="button">Fill the form for me</button><span class="quick-report-status" aria-live="polite"></span></div>
+      </div>
       <div class="form-section">
         <p class="section-kicker">ITEM DETAILS</p>
         <div class="field-grid">

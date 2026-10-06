@@ -133,6 +133,44 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  // Quick report: one sentence in, the form fields out, for the student to check.
+  document.querySelectorAll(".quick-report").forEach((box) => {
+    const form = box.closest("form");
+    const text = box.querySelector(".quick-report-text");
+    const button = box.querySelector(".quick-report-button");
+    const status = box.querySelector(".quick-report-status");
+    button.addEventListener("click", async () => {
+      if (text.value.trim().length < 5) {
+        status.textContent = "Write a sentence about the item first.";
+        return;
+      }
+      button.disabled = true;
+      status.textContent = "Reading your description…";
+      try {
+        const response = await fetch(box.dataset.parseUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": form.querySelector('input[name="csrf_token"]').value,
+          },
+          body: JSON.stringify({ text: text.value }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not read that.");
+        Object.entries(data.fields).forEach(([name, value]) => {
+          const field = form.elements.namedItem(name);
+          if (field && value) field.value = value;
+        });
+        form.querySelectorAll("textarea[maxlength]").forEach((area) => area.dispatchEvent(new Event("input")));
+        status.textContent = "Filled in below. Check each field before publishing.";
+      } catch (error) {
+        status.textContent = error.message || "Could not read that. Fill the form below instead.";
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+
   document.querySelectorAll("form").forEach((form) => {
     form.addEventListener("submit", () => {
       const submit = form.querySelector('button[type="submit"]');

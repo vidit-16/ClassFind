@@ -9,6 +9,9 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret"
 
 from app import (
+    clean_parsed_report,
+    escalate_unclaimed_valuables,
+    parse_report_rules,
     CustodyEvent,
     add_desk_columns,
     _rate_hits,
@@ -516,6 +519,79 @@ class ClassFindTestCase(unittest.TestCase):
             custody = db.session.execute(db.text("SELECT custody FROM item")).scalar()
             self.assertEqual(custody, "held")
             db.create_all()
+
+    def test_one_sentence_fills_the_report_form(self):
+        self.register()
+        token = self.csrf_token()
+        response = self.client.post(
+            "/report/parse",
+            json={"text": "Lost my black Milton bottle near the library yesterday"},
+            headers={"X-CSRF-Token": token},
+        )
+        self.assertEqual(response.status_code, 200)
+        fields = response.get_json()["fields"]
+        self.assertEqual(fields["status"], "Lost")
+        self.assertEqual(fields["category"], "Accessories")
+        self.assertEqual(fields["location"], "Library")
+        self.assertEqual(fields["title"], "Black Milton bottle")
+        self.assertEqual(response.get_json()["source"], "rules")
+
+        found = parse_report_rules("Found an iPhone 13 with a clear case at the canteen")
+        self.assertEqual((found["status"], found["category"], found["title"]),
+                         ("Found", "Electronics", "iPhone 13 with a clear case"))
+
+    def test_parsing_needs_a_session_and_a_csrf_token(self):
+        self.assertEqual(self.client.post("/report/parse", json={"text": "lost keys"}).status_code, 400)
+        self.register()
+        response = self.client.post("/report/parse", json={"text": "lost keys at gym"})
+        self.assertEqual(response.status_code, 400)
+
+    def test_model_output_is_checked_before_it_reaches_the_form(self):
+        text = "lost my keys at the gym"
+        cleaned = clean_parsed_report(
+            {"title": "Keys", "category": "Weapons", "status": "Stolen", "location": 5}, text)
+        self.assertEqual(cleaned["category"], "Keys")
+        self.assertEqual(cleaned["status"], "Lost")
+        self.assertEqual(cleaned["location"], "Gym")
+        self.assertEqual(clean_parsed_report("not a dict", text)["title"], "Keys")
+
+    def test_unclaimed_valuables_move_to_the_admin_office(self):
+        item_id = self.found_item("Grey phone", category="Electronics")
+        self.register_staff()
+        self.post(f"/desk/item/{item_id}/received", follow_redirects=True)
+        with app.app_context():
+            for event in db.session.get(Item, item_id).events:
+                event.created_at = datetime.utcnow() - timedelta(hours=100)
+            db.session.commit()
+            self.assertEqual(escalate_unclaimed_valuables(), 1)
+            item = db.session.get(Item, item_id)
+            self.assertEqual(item.custody, "office")
+            self.assertIn("admin office", item.events[-1].action)
+            self.assertEqual(escalate_unclaimed_valuables(), 0)
+
+        # It can still be claimed and released from the office.
+        self.logout()
+        self.register("Owner", "owner@example.com")
+        self.claim(item_id, "IMEI ends in 4471 and the lock screen is a beach photo.")
+        self.logout()
+        self.login("desk@example.com")
+        with app.app_context():
+            claim_id = Claim.query.one().id
+        self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
+        response = self.post("/desk/handover", data={"code": self.code_for(claim_id)}, follow_redirects=True)
+        self.assertIn(b"Released Grey phone", response.data)
+
+    def test_ordinary_items_and_recent_valuables_stay_at_the_desk(self):
+        self.register_staff()
+        self.report("Blue bottle", "Steel bottle", "Accessories", "Gym", "Found")
+        self.report("Black laptop", "Dell laptop", "Electronics", "Lab 1", "Found")
+        with app.app_context():
+            bottle = Item.query.filter_by(title="Blue bottle").one()
+            for event in bottle.events:
+                event.created_at = datetime.utcnow() - timedelta(hours=500)
+            db.session.commit()
+            self.assertEqual(escalate_unclaimed_valuables(), 0)
+            self.assertEqual(Item.query.filter_by(custody="office").count(), 0)
 
     def test_admin_dashboard_and_delete(self):
         self.register_admin()
