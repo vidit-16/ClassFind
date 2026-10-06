@@ -5,7 +5,8 @@
 <section class="detail-card">
   <div class="detail-visual">{% if item.image_src %}<img src="{{ item.image_src }}" alt="{{ item.title }}" loading="lazy">{% else %}<span>{{ item.category[:1].upper() }}</span>{% endif %}</div>
   <div class="detail-content">
-    <div class="detail-topline"><span class="status-pill {{ item.status_class }}">{{ item.status }}</span><span class="item-category">{{ item.category }}</span></div>
+    <div class="detail-topline"><span class="status-pill {{ item.status_class }}">{{ item.status }}</span><span class="item-category">{{ item.category }}</span>{% if item.is_valuable %}<span class="status-pill valuable-pill">Valuable</span>{% endif %}</div>
+    {% if item.custody %}<div class="custody-banner custody-{{ item.custody }}">{{ item.custody_label }}</div>{% endif %}
     <h1>{{ item.title }}</h1>
     <p class="detail-description">{{ item.description }}</p>
     <div class="detail-facts">
@@ -21,14 +22,16 @@
     {% if can_manage %}
     <div class="detail-actions">
       <a class="secondary-btn" href="{{ url_for('edit_item', item_id=item.id) }}">Edit report</a>
-      {% if item.status != "Resolved" %}
+      {% if item.status != "Resolved" and (item.custody != "held" or current_user.is_admin) %}
       <form method="post" action="{{ url_for('resolve_item', item_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="primary-btn" type="submit">Mark as resolved</button></form>
       {% endif %}
       <form method="post" action="{{ url_for('delete_item', item_id=item.id) }}" onsubmit="return confirm('Delete this report?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger-btn" type="submit">Delete report</button></form>
     </div>
     {% elif item.status == "Found" and current_user %}
       {% if existing_claim and existing_claim.status == "Pending" %}
-        <div class="resolved-banner">✓ Your claim is pending review by the reporter.</div>
+        <div class="resolved-banner">✓ Your claim is waiting for the security desk to review it.</div>
+      {% elif existing_claim and existing_claim.status == "Approved" %}
+        <div class="resolved-banner">✓ Approved. Your collection code is on your <a href="{{ url_for('claims') }}">Claims</a> page.</div>
       {% elif existing_claim and existing_claim.status == "Rejected" %}
         <div class="resolved-banner">Your previous claim was rejected. You can submit another claim below with more detail.</div>
       {% elif item.status != "Resolved" %}
@@ -36,8 +39,13 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <p class="section-kicker">CLAIM THIS ITEM</p>
           <h3>Think this belongs to you?</h3>
-          <p>Share an identifying detail only the owner would know. Keep sensitive information private.</p>
+          {% if item.is_valuable %}
+          <p>This is a valuable item, so the security desk needs strong proof: a serial number, IMEI, the lock screen, contents, or a mark only the owner would know. Only desk staff see your answer.</p>
+          <textarea name="message" minlength="30" maxlength="500" required placeholder="e.g. IMEI ends in 4471, cracked corner bottom left, wallpaper is a beach photo..."></textarea>
+          {% else %}
+          <p>Share an identifying detail only the owner would know. Only desk staff see your answer.</p>
           <textarea name="message" minlength="10" maxlength="500" required placeholder="Describe an identifying detail only the owner would know..."></textarea>
+          {% endif %}
           <button class="primary-btn" type="submit">Submit claim →</button>
         </form>
       {% endif %}
@@ -48,4 +56,14 @@
     {% endif %}
   </div>
 </section>
+{% if show_custody and item.events %}
+<section class="custody-log">
+  <p class="section-kicker">CHAIN OF CUSTODY</p>
+  <ol>
+    {% for event in item.events %}
+    <li><strong>{{ event.action }}</strong><span>{{ event.created_at.strftime("%d %b %Y, %I:%M %p") }} UTC{% if event.actor %} · {{ event.actor.name }}{% endif %}</span></li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
 {% endblock %}

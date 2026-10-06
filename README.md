@@ -28,8 +28,20 @@ same object, with the reasons for each score.
   The reporter's name and contact come from the signed-in account rather than a
   form field, so they cannot be spoofed by whoever fills the form.
 - **Search and filter** by keyword, category and status, 24 reports to a page.
-- **Claim** a found item. The finder sees the claim, and accepts, rejects or
-  waits; the claimant can withdraw it. Accepting a claim resolves the report.
+- **Security desk.** Every found item goes to the campus security desk. A
+  student's found report shows as awaiting drop-off until staff mark it
+  received; staff can also log items handed in directly. Each found item keeps
+  a chain of custody: reported, received, claim approved, released, with who
+  did each and when.
+- **Claim** a found item with proof only the owner would know. Electronics,
+  wallets and ID, and keys count as valuable and need a longer proof that names
+  something like a serial number or IMEI. Desk staff, not the finder, approve
+  or reject claims; the claimant can withdraw one while it waits.
+- **Collect with a code.** Approving a claim issues a six-digit collection code,
+  shown only to the claimant and valid for 48 hours. Staff enter it at the desk
+  to release the item, after checking the student's ID. A code works once,
+  expired codes can be reissued, and an item is only released once it has
+  actually reached the desk.
 - **Matches** compares every active Lost report against every active Found one
   and lists the pairs worth a look, each with the reasons behind its score.
 - **Admin** view over all reports and accounts, for one account named by
@@ -93,6 +105,7 @@ the log, which means sessions end when you restart it.
 | `CLASSFIND_ENV` | `production` makes `SECRET_KEY` mandatory | `development` |
 | `SECRET_KEY` | Signs session cookies | random per process, outside production |
 | `ADMIN_EMAIL` | The one account that gets admin pages | none, so nobody is admin |
+| `STAFF_EMAILS` | Comma-separated accounts that work the security desk; the admin can also grant this from the admin page | none |
 | `DATABASE_URL` | SQLite or PostgreSQL connection string | `sqlite:///classfind.db` |
 | `S3_BUCKET` | Bucket for uploaded images | unset, images go to local disk |
 | `AWS_REGION` | Region for that bucket | `ap-south-1` |
@@ -113,8 +126,9 @@ bundle, and check `/health`, which reports the database as well as the app.
 .venv/Scripts/python.exe -m unittest discover -s tests -v
 ```
 
-24 tests, no network and no AWS account needed. They cover registration and
-sign-in, reporting, search, the claim workflow end to end, admin access, CSRF
+39 tests, no network and no AWS account needed. They cover registration and
+sign-in, reporting, search, the security desk flow from drop-off to handover,
+collection codes that are single use and expire, admin access, CSRF
 rejection and the security headers, image upload, pagination across two pages,
 one account failing to edit another's report, and a check that the fast
 matching path returns exactly what a plain double loop returns on the same data.

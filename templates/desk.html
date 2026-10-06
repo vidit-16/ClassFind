@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Security Desk — ClassFind{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div>
+    <div class="hero-topline"><p class="eyebrow">SECURITY DESK</p><span class="live-chip"><span class="live-dot"></span>Custody and handover</span></div>
+    <h1>Every found item, accounted for.</h1>
+    <p>Receive handed-in items, verify claims, and release items only against a valid collection code.</p>
+  </div>
+  <a class="primary-btn" href="{{ url_for('report') }}">Log a handed-in item <span>→</span></a>
+</section>
+
+<section class="claim-overview desk-overview">
+  <div class="claim-overview-card"><span>Awaiting drop-off</span><strong>{{ awaiting|length }}</strong><small>Reported, not yet handed in</small></div>
+  <div class="claim-overview-card"><span>Held at desk</span><strong>{{ held|length }}</strong><small>In storage now</small></div>
+  <div class="claim-overview-card"><span>Claims to review</span><strong>{{ pending|length }}</strong><small>Check the proof</small></div>
+  <div class="claim-overview-card"><span>Ready to collect</span><strong>{{ approved|length }}</strong><small>Owner has a code</small></div>
+</section>
+
+<section class="claim-section">
+  <form class="handover-form" method="post" action="{{ url_for('desk_handover') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+      <p class="section-kicker">HANDOVER</p>
+      <h2>Enter the owner's collection code</h2>
+      <p>Check their college ID, then enter the six-digit code from their Claims page.</p>
+    </div>
+    <div class="handover-input">
+      <input name="code" inputmode="numeric" autocomplete="off" maxlength="7" pattern="[0-9 ]{6,7}" placeholder="000000" required aria-label="Collection code">
+      <button class="primary-btn" type="submit">Verify and release</button>
+    </div>
+  </form>
+</section>
+
+<section class="claim-section">
+  <div class="results-header"><div><p class="section-kicker">CLAIMS TO REVIEW</p><h2>{{ pending|length }} waiting</h2></div><span class="queue-note">Approve only when the proof matches the item</span></div>
+  {% if pending %}
+  <div class="claim-list">
+    {% for claim in pending %}
+    <article class="claim-card claim-pending">
+      <div class="claim-main">
+        <span class="status-pill status-found">{{ claim.item.custody_label }}</span>
+        {% if claim.item.is_valuable %}<span class="status-pill valuable-pill">Valuable</span>{% endif %}
+        <h3><a href="{{ url_for('item_detail', item_id=claim.item.id) }}">{{ claim.item.title }}</a></h3>
+        <p class="claim-by">Claim from <strong>{{ claim.claimant.name }}</strong> · {{ claim.claimant.email }}</p>
+        <p class="claim-message">“{{ claim.message }}”</p>
+        <small>{{ claim.created_at.strftime("%d %b %Y, %I:%M %p") }}</small>
+      </div>
+      <div class="claim-actions">
+        <form method="post" action="{{ url_for('accept_claim', claim_id=claim.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="primary-btn compact" type="submit">Approve</button></form>
+        <form method="post" action="{{ url_for('reject_claim', claim_id=claim.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger-btn compact-btn" type="submit">Reject</button></form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state compact-empty"><h3>No claims to review</h3><p>New claims on found items will appear here.</p></div>
+  {% endif %}
+</section>
+
+<section class="claim-section">
+  <div class="results-header"><div><p class="section-kicker">READY TO COLLECT</p><h2>{{ approved|length }} approved</h2></div><span class="queue-note">Codes expire after 48 hours</span></div>
+  {% if approved %}
+  <div class="claim-list">
+    {% for claim in approved %}
+    <article class="claim-card">
+      <div class="claim-main">
+        <span class="status-pill status-found">{{ claim.item.custody_label }}</span>
+        <h3>{{ claim.item.title }}</h3>
+        <p class="claim-by">For <strong>{{ claim.claimant.name }}</strong> · {{ claim.claimant.email }}</p>
+        <small>{% if claim.code_is_live %}Code valid until {{ claim.code_expires_at.strftime("%d %b, %I:%M %p") }} UTC{% else %}Code expired{% endif %}</small>
+      </div>
+      <div class="claim-actions">
+        <form method="post" action="{{ url_for('reissue_code', claim_id=claim.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-btn compact-btn" type="submit">Issue new code</button></form>
+        <form method="post" action="{{ url_for('reject_claim', claim_id=claim.id) }}" onsubmit="return confirm('Cancel this approval?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="inline-action danger" type="submit">Cancel approval</button></form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state compact-empty"><h3>Nothing waiting for collection</h3><p>Approved claims appear here until the owner collects.</p></div>
+  {% endif %}
+</section>
+
+<section class="claim-section">
+  <div class="results-header"><div><p class="section-kicker">AWAITING DROP-OFF</p><h2>{{ awaiting|length }} reported</h2></div><span class="queue-note">Mark received when the finder hands it in</span></div>
+  {% if awaiting %}
+  <div class="claim-list">
+    {% for item in awaiting %}
+    <article class="claim-card">
+      <div class="claim-main">
+        <span class="item-category">{{ item.category }}</span>
+        <h3><a href="{{ url_for('item_detail', item_id=item.id) }}">{{ item.title }}</a></h3>
+        <p class="claim-by">Found by {{ item.reporter_name }} · ⌖ {{ item.location }}</p>
+        <small>Reported {{ item.created_at.strftime("%d %b %Y, %I:%M %p") }}</small>
+      </div>
+      <div class="claim-actions">
+        <form method="post" action="{{ url_for('desk_receive', item_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="primary-btn compact" type="submit">Mark received</button></form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state compact-empty"><h3>Nothing awaiting drop-off</h3><p>Found reports from students appear here until the item reaches the desk.</p></div>
+  {% endif %}
+</section>
+
+<section class="claim-section">
+  <div class="results-header"><div><p class="section-kicker">HELD AT DESK</p><h2>{{ held|length }} in storage</h2></div></div>
+  {% if held %}
+  <div class="claim-list">
+    {% for item in held %}
+    <article class="claim-card">
+      <div class="claim-main">
+        <span class="item-category">{{ item.category }}</span>{% if item.is_valuable %} <span class="status-pill valuable-pill">Valuable</span>{% endif %}
+        <h3><a href="{{ url_for('item_detail', item_id=item.id) }}">{{ item.title }}</a></h3>
+        <p class="claim-by">⌖ {{ item.location }}</p>
+      </div>
+      <div class="claim-actions"><a class="card-link" href="{{ url_for('item_detail', item_id=item.id) }}">Custody log →</a></div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state compact-empty"><h3>The desk holds nothing right now</h3></div>
+  {% endif %}
+</section>
+{% endblock %}

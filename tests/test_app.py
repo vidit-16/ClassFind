@@ -2,12 +2,15 @@ import os
 import shutil
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from io import BytesIO
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret"
 
 from app import (
+    CustodyEvent,
+    add_desk_columns,
     _rate_hits,
     MATCH_THRESHOLD,
     PAGE_SIZE,
@@ -304,49 +307,215 @@ class ClassFindTestCase(unittest.TestCase):
 
         self.assertTrue(os.path.exists(os.path.join(self.upload_dir, stored_name)))
 
-    def test_claim_workflow(self):
+    def register_staff(self, email="desk@example.com"):
+        """Register an account STAFF_EMAILS names, so it works the security desk."""
+        os.environ["STAFF_EMAILS"] = email
+        self.addCleanup(os.environ.pop, "STAFF_EMAILS", None)
+        return self.register("Desk", email)
+
+    def logout(self):
+        self.post("/logout", follow_redirects=True)
+
+    def found_item(self, title="Black AirPods", category="Accessories"):
+        """A finder reports a found item and signs out. Returns the item id."""
         self.register("Finder", "finder@example.com")
-        self.report(
-            "Black AirPods",
-            "Black earbuds in a charging case",
-            "Electronics",
-            "Library",
-            "Found",
-        )
+        self.report(title, "Black earbuds in a charging case", category, "Library", "Found")
+        self.logout()
         with app.app_context():
-            found = Item.query.filter_by(title="Black AirPods").first()
-            found_id = found.id
+            return Item.query.filter_by(title=title).one().id
 
-        self.post("/logout", follow_redirects=True)
+    def claim(self, item_id, message="These are mine, the case has a blue sticker inside."):
+        return self.post(f"/item/{item_id}/claim", data={"message": message}, follow_redirects=True)
+
+    def code_for(self, claim_id):
+        with app.app_context():
+            return db.session.get(Claim, claim_id).handover_code
+
+    def test_found_items_go_through_the_security_desk(self):
+        item_id = self.found_item()
+        with app.app_context():
+            item = db.session.get(Item, item_id)
+            self.assertEqual(item.custody, "awaiting")
+            self.assertEqual(len(item.events), 1)
+
         self.register("Owner", "owner@example.com")
-
-        response = self.post(
-            f"/item/{found_id}/claim",
-            data={"message": "I lost these after studying in the library."},
-            follow_redirects=True,
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Claim submitted", response.data)
-
+        response = self.claim(item_id)
+        self.assertIn(b"The security desk will review it", response.data)
         with app.app_context():
-            claim = Claim.query.first()
-            claim_id = claim.id
-            self.assertEqual(claim.status, "Pending")
+            claim_id = Claim.query.one().id
 
-        self.post("/logout", follow_redirects=True)
+        # Neither the claimant nor the finder decides the claim.
+        self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
+        self.logout()
         self.login("finder@example.com")
+        self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
+        with app.app_context():
+            self.assertEqual(db.session.get(Claim, claim_id).status, "Pending")
+        self.assertNotIn(b"blue sticker", self.client.get("/claims").data)
+        self.logout()
 
-        response = self.post(
-            f"/claims/{claim_id}/accept",
-            follow_redirects=True,
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Claim accepted", response.data)
+        self.register_staff()
+        desk = self.client.get("/desk")
+        self.assertEqual(desk.status_code, 200)
+        self.assertIn(b"blue sticker", desk.data)
+        self.post(f"/desk/item/{item_id}/received", follow_redirects=True)
+        response = self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
+        self.assertIn(b"collection code", response.data)
+        code = self.code_for(claim_id)
+        self.assertRegex(code, r"^[0-9]{6}$")
+        self.logout()
+
+        # Only the claimant sees the code.
+        self.login("owner@example.com")
+        claims_page = self.client.get("/claims").data
+        self.assertIn(f"{code[:3]} {code[3:]}".encode(), claims_page)
+        self.logout()
+        self.login("finder@example.com")
+        self.assertNotIn(f"{code[:3]} {code[3:]}".encode(), self.client.get("/claims").data)
+        self.logout()
+
+        self.login("desk@example.com")
+        wrong = "000000" if code != "000000" else "111111"
+        response = self.post("/desk/handover", data={"code": wrong}, follow_redirects=True)
+        self.assertIn(b"does not match", response.data)
+        response = self.post("/desk/handover", data={"code": f"{code[:3]} {code[3:]}"}, follow_redirects=True)
+        self.assertIn(b"Released Black AirPods to Owner", response.data)
 
         with app.app_context():
             claim = db.session.get(Claim, claim_id)
-            self.assertEqual(claim.status, "Accepted")
-            self.assertEqual(db.session.get(Item, found_id).status, "Resolved")
+            item = db.session.get(Item, item_id)
+            self.assertEqual(claim.status, "Collected")
+            self.assertIsNone(claim.handover_code)
+            self.assertEqual(claim.released_by.email, "desk@example.com")
+            self.assertEqual(item.status, "Resolved")
+            self.assertEqual(item.custody, "released")
+            actions = [event.action for event in item.events]
+        self.assertEqual(len(actions), 4)
+        self.assertTrue(actions[-1].startswith("Released to Owner"))
+
+        # The code works once.
+        response = self.post("/desk/handover", data={"code": code}, follow_redirects=True)
+        self.assertIn(b"does not match", response.data)
+
+    def test_handover_waits_for_the_item_to_reach_the_desk(self):
+        item_id = self.found_item()
+        self.register("Owner", "owner@example.com")
+        self.claim(item_id)
+        self.logout()
+        self.register_staff()
+        with app.app_context():
+            claim_id = Claim.query.one().id
+        self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
+        response = self.post("/desk/handover", data={"code": self.code_for(claim_id)}, follow_redirects=True)
+        self.assertIn(b"not been received", response.data)
+        with app.app_context():
+            self.assertEqual(db.session.get(Claim, claim_id).status, "Approved")
+
+    def test_an_expired_code_is_refused_until_a_new_one_is_issued(self):
+        item_id = self.found_item()
+        self.register("Owner", "owner@example.com")
+        self.claim(item_id)
+        self.logout()
+        self.register_staff()
+        with app.app_context():
+            claim_id = Claim.query.one().id
+        self.post(f"/desk/item/{item_id}/received", follow_redirects=True)
+        self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
+        old_code = self.code_for(claim_id)
+        with app.app_context():
+            claim = db.session.get(Claim, claim_id)
+            claim.code_expires_at = datetime.utcnow() - timedelta(minutes=1)
+            db.session.commit()
+        response = self.post("/desk/handover", data={"code": old_code}, follow_redirects=True)
+        self.assertIn(b"expired", response.data)
+
+        self.post(f"/claims/{claim_id}/reissue", follow_redirects=True)
+        new_code = self.code_for(claim_id)
+        response = self.post("/desk/handover", data={"code": new_code}, follow_redirects=True)
+        self.assertIn(b"Released", response.data)
+
+    def test_valuable_items_need_a_stronger_claim(self):
+        item_id = self.found_item("Grey phone", category="Electronics")
+        self.register("Owner", "owner@example.com")
+        response = self.claim(item_id, "It is my phone.")
+        self.assertIn(b"serial number, IMEI", response.data)
+        with app.app_context():
+            self.assertEqual(Claim.query.count(), 0)
+        self.claim(item_id, "IMEI ends in 4471 and the lock screen is a beach photo.")
+        with app.app_context():
+            self.assertEqual(Claim.query.count(), 1)
+
+    def test_the_finder_lets_go_of_a_found_item_once_it_is_handed_in(self):
+        item_id = self.found_item()
+        self.login("finder@example.com")
+        self.assertEqual(self.client.get(f"/item/{item_id}/edit").status_code, 200)
+        self.logout()
+
+        self.register_staff()
+        self.post(f"/desk/item/{item_id}/received", follow_redirects=True)
+        self.logout()
+
+        self.login("finder@example.com")
+        response = self.client.get(f"/item/{item_id}/edit", follow_redirects=True)
+        self.assertIn(b"only edit your own reports", response.data)
+        self.post(f"/item/{item_id}/delete", follow_redirects=True)
+        with app.app_context():
+            self.assertIsNotNone(db.session.get(Item, item_id))
+
+    def test_staff_logging_an_item_puts_it_straight_into_custody(self):
+        self.register_staff()
+        self.report("Blue umbrella", "Folding umbrella", "Other", "Main gate", "Found")
+        with app.app_context():
+            item = Item.query.filter_by(title="Blue umbrella").one()
+            self.assertEqual(item.custody, "held")
+            self.assertEqual(item.events[0].action, "Logged at the security desk")
+
+    def test_the_desk_is_for_staff_only(self):
+        self.register("Student", "student@example.com")
+        response = self.client.get("/desk", follow_redirects=True)
+        self.assertIn(b"Security desk access is required", response.data)
+
+    def test_admin_can_give_and_remove_desk_access(self):
+        self.register("Student", "student@example.com")
+        self.logout()
+        self.register_admin("admin@example.com")
+        with app.app_context():
+            student_id = User.query.filter_by(email="student@example.com").one().id
+        self.post(f"/admin/users/{student_id}/staff", follow_redirects=True)
+        with app.app_context():
+            self.assertTrue(db.session.get(User, student_id).is_staff)
+        self.post(f"/admin/users/{student_id}/staff", follow_redirects=True)
+        with app.app_context():
+            self.assertFalse(db.session.get(User, student_id).is_staff)
+
+    def test_desk_columns_are_added_to_an_older_database(self):
+        """A database from before the desk gets its columns, and found items count as held."""
+        with app.app_context():
+            db.drop_all()
+            for statement in (
+                'CREATE TABLE "user" (id INTEGER PRIMARY KEY, name VARCHAR(100) NOT NULL, '
+                "email VARCHAR(160) NOT NULL, password_hash VARCHAR(255) NOT NULL, "
+                "is_admin BOOLEAN NOT NULL, created_at DATETIME NOT NULL)",
+                "CREATE TABLE item (id INTEGER PRIMARY KEY, title VARCHAR(120) NOT NULL, "
+                "description TEXT NOT NULL, category VARCHAR(60) NOT NULL, location VARCHAR(120) NOT NULL, "
+                "status VARCHAR(20) NOT NULL, reporter_name VARCHAR(100) NOT NULL, contact VARCHAR(160) NOT NULL, "
+                "image_url VARCHAR(500), owner_id INTEGER, created_at DATETIME NOT NULL)",
+                "CREATE TABLE claim (id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL, claimant_id INTEGER NOT NULL, "
+                "message TEXT NOT NULL, status VARCHAR(20) NOT NULL, created_at DATETIME NOT NULL, decided_at DATETIME)",
+                "INSERT INTO item (title, description, category, location, status, reporter_name, contact, created_at) "
+                "VALUES ('Old bottle', 'Steel bottle', 'Other', 'Gym', 'Found', 'X', 'x@example.com', '2026-09-01')",
+            ):
+                db.session.execute(db.text(statement))
+            db.session.commit()
+
+            add_desk_columns()
+
+            columns = {c["name"] for c in db.inspect(db.engine).get_columns("claim")}
+            self.assertTrue({"handover_code", "code_expires_at", "collected_at", "released_by_id"} <= columns)
+            self.assertIn("is_staff", {c["name"] for c in db.inspect(db.engine).get_columns("user")})
+            custody = db.session.execute(db.text("SELECT custody FROM item")).scalar()
+            self.assertEqual(custody, "held")
+            db.create_all()
 
     def test_admin_dashboard_and_delete(self):
         self.register_admin()
@@ -544,56 +713,6 @@ class ClassFindTestCase(unittest.TestCase):
             "/item/1/resolve", follow_redirects=True
         )
         self.assertIn(b"marked as resolved", response.data)
-
-    def test_claims_follow_the_account_not_the_contact_field(self):
-        """A report whose contact names someone else still belongs to whoever filed it."""
-        self.register("Finder", "finder@example.com")
-        with app.app_context():
-            finder = User.query.filter_by(email="finder@example.com").first()
-            found = Item(
-                title="Grey umbrella",
-                description="Folding umbrella",
-                category="Other",
-                location="Canteen",
-                status="Found",
-                reporter_name="Finder",
-                contact="owner@example.com",
-                owner_id=finder.id,
-            )
-            db.session.add(found)
-            db.session.commit()
-            found_id = found.id
-
-        self.assertIn(b"Grey umbrella", self.client.get("/me").data)
-        response = self.post(
-            f"/item/{found_id}/claim",
-            data={"message": "Trying to claim the report I filed myself."},
-            follow_redirects=True,
-        )
-        self.assertIn(b"You cannot claim your own found report.", response.data)
-
-        self.post("/logout", follow_redirects=True)
-        self.register("Owner", "owner@example.com")
-        self.assertNotIn(b"Grey umbrella", self.client.get("/me").data)
-        self.post(
-            f"/item/{found_id}/claim",
-            data={"message": "That is my umbrella from the canteen."},
-            follow_redirects=True,
-        )
-        with app.app_context():
-            claim_id = Claim.query.filter_by(item_id=found_id).one().id
-
-        # Sharing the contact address does not let the claimant accept their own claim.
-        self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
-        with app.app_context():
-            self.assertEqual(db.session.get(Claim, claim_id).status, "Pending")
-
-        self.post("/logout", follow_redirects=True)
-        self.login("finder@example.com")
-        self.assertIn(b"That is my umbrella", self.client.get("/claims").data)
-        self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
-        with app.app_context():
-            self.assertEqual(db.session.get(Claim, claim_id).status, "Accepted")
 
     def test_faster_matching_returns_what_the_plain_version_would(self):
         """The early exit only skips pairs that could not have cleared the cut-off."""
