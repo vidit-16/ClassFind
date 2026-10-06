@@ -615,6 +615,48 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertIn(b'name="place" value="p2"', page)
         self.assertIn(b'value="outside" checked', page)
 
+    def found_at(self, title, location, place, side="inside", hours_ago=1):
+        self.post("/report", data={
+            "title": title, "description": f"{title} with a sticker", "category": "Other",
+            "location": location, "status": "Found", "place": place, "place_side": side,
+        })
+        with app.app_context():
+            item = Item.query.filter_by(title=title).one()
+            item.created_at = datetime.utcnow() - timedelta(hours=hours_ago)
+            db.session.commit()
+
+    def retrace(self, **params):
+        return [item["title"] for item in self.client.get("/api/retrace", query_string=params).get_json()["items"]]
+
+    def test_retrace_finds_items_along_the_route(self):
+        self.register()
+        self.found_at("Wallet", "canteen counter", "canteen")
+        self.found_at("Umbrella", "outside the main block", "main-block", "outside")
+        self.found_at("Laptop", "CS lab", "main-block", "inside")
+        self.found_at("Keys", "main road", "road-main")
+        self.found_at("Cap", "dental college", "dental")
+        since = (datetime.utcnow() - timedelta(hours=6)).isoformat() + "Z"
+        found = self.retrace(stops="canteen", passed="main-block,road-main", since=since)
+        # Inside the canteen counts; the Main Block was only passed, so only what was outside it.
+        self.assertEqual(sorted(found), ["Keys", "Umbrella", "Wallet"])
+        found = self.retrace(stops="canteen,main-block", passed="", since=since, q="umbrella")
+        self.assertEqual(found[0], "Umbrella")
+        self.assertIn("Laptop", found)
+
+    def test_retrace_leaves_out_what_was_found_before_you_were_there(self):
+        self.register()
+        self.found_at("Old wallet", "canteen", "canteen", hours_ago=30)
+        self.found_at("New wallet", "canteen", "canteen", hours_ago=2)
+        since = (datetime.utcnow() - timedelta(hours=12)).isoformat() + "Z"
+        self.assertEqual(self.retrace(stops="canteen", since=since), ["New wallet"])
+        self.assertEqual(self.retrace(stops="not-a-place", since=since), [])
+
+    def test_save_as_lost_report_fills_the_form(self):
+        self.register()
+        page = self.client.get("/report?status=Lost&title=Black+bottle&location=P1+%E2%86%92+Canteen").data
+        self.assertIn(b'value="Black bottle"', page)
+        self.assertIn("value=\"P1 → Canteen\"".encode(), page)
+
     def test_desk_columns_are_added_to_an_older_database(self):
         """A database from before the desk gets its columns, and found items count as held."""
         with app.app_context():
