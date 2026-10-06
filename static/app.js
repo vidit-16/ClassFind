@@ -189,6 +189,38 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  // Live search: results update as you type or change a filter, without a reload.
+  const liveForm = document.querySelector(".live-filters");
+  const results = document.getElementById("results");
+  if (liveForm && results) {
+    let timer;
+    let latest = 0;
+    const refresh = async () => {
+      const params = new URLSearchParams(new FormData(liveForm));
+      const url = `${liveForm.getAttribute("action") || window.location.pathname}?${params}`;
+      const request = ++latest;
+      try {
+        const response = await fetch(url, { headers: { "X-Requested-With": "fetch" } });
+        if (!response.ok || request !== latest) return;
+        const page = new DOMParser().parseFromString(await response.text(), "text/html");
+        const fresh = page.getElementById("results");
+        if (fresh) {
+          results.innerHTML = fresh.innerHTML;
+          window.history.replaceState(null, "", url);
+        }
+      } catch {
+        // Offline or the server is busy: the normal Search button still works.
+      }
+    };
+    liveForm.querySelectorAll("input[name='q']").forEach((input) => {
+      input.addEventListener("input", () => {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(refresh, 250);
+      });
+    });
+    liveForm.querySelectorAll("select").forEach((select) => select.addEventListener("change", refresh));
+  }
+
   document.querySelectorAll("form").forEach((form) => {
     form.addEventListener("submit", () => {
       const submit = form.querySelector('button[type="submit"]');

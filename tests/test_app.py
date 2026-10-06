@@ -752,6 +752,23 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertEqual(self.post(f"/tags/{tag_id}/delete").status_code, 404)
         self.assertEqual(self.client.get("/t/not-a-real-token").status_code, 404)
 
+    def test_home_page_wraps_results_for_live_search(self):
+        self.register()
+        self.report("Red umbrella", "Folding umbrella", "Other", "Hostel", "Lost")
+        page = self.client.get("/?q=umbrella").data
+        results = page.split(b'id="results"', 1)[1]
+        self.assertIn(b"Red umbrella", results)
+        self.assertIn(b"live-filters", page)
+
+    def test_claim_page_shows_progress(self):
+        item_id = self.found_item()
+        self.register("Owner", "owner@example.com")
+        self.claim(item_id)
+        page = self.client.get("/claims").data
+        self.assertIn(b"claim-steps", page)
+        self.assertIn(b'class="done">Submitted', page)
+        self.assertNotIn(b'class="done">Ready to collect', page)
+
     def test_admin_dashboard_and_delete(self):
         self.register_admin()
         response = self.client.get("/admin")
