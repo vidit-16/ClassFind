@@ -167,6 +167,20 @@ class ClassFindTestCase(unittest.TestCase):
         with app.app_context():
             self.assertEqual(db.session.get(Item, lost.id).status, "Resolved")
 
+    def test_contact_email_is_hidden_from_signed_out_visitors(self):
+        self.register()
+        self.report("Blue bottle", "Steel bottle", "Other", "Canteen", "Lost")
+        with app.app_context():
+            item_id = Item.query.filter_by(title="Blue bottle").first().id
+
+        self.assertIn(b"alice@example.com", self.client.get(f"/item/{item_id}").data)
+
+        self.post("/logout", follow_redirects=True)
+        response = self.client.get(f"/item/{item_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"alice@example.com", response.data)
+        self.assertIn(b"Sign in to see contact", response.data)
+
     def test_bad_image_url_is_rejected(self):
         self.register()
         response = self.post(
