@@ -37,9 +37,9 @@ Set the connection string as `DATABASE_URL` in the Elastic Beanstalk environment
 
 Create an Elastic Beanstalk application using the Python platform and deploy this repository.
 
-The included Procfile starts Gunicorn on port 8000:
+The included Procfile starts Gunicorn on port 8000, as one process with eight threads:
 
-`gunicorn --bind 0.0.0.0:8000 application:application`
+`gunicorn --bind 127.0.0.1:8000 --workers 1 --threads 8 --timeout 60 application:application`
 
 Set these environment variables:
 
