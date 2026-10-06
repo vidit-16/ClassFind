@@ -20,10 +20,12 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+
+import campus
 
 app = Flask(__name__)
 # nginx terminates HTTPS and forwards to Gunicorn over plain HTTP, setting
@@ -254,6 +256,11 @@ class Item(db.Model):
     # access rule. Rows created before this column exists carry NULL and fall
     # back to that comparison; see backfill_item_owners().
     owner_id = db.Column(db.Integer, db.ForeignKey("user.id"), index=True)
+    # The place on the campus map (static/campus.json): a building or a road.
+    # `location` keeps the reporter's own words, e.g. "CS lab, 3rd floor".
+    place = db.Column(db.String(40), index=True)
+    # "outside" for things found next to a building rather than in it.
+    place_side = db.Column(db.String(10))
     # What Rekognition saw in the photo, comma separated, e.g. "Bottle,Shaker".
     image_labels = db.Column(db.String(300))
     # Where a found item physically is: awaiting drop-off at the security desk,
@@ -273,6 +280,10 @@ class Item(db.Model):
     @property
     def custody_label(self):
         return CUSTODY_LABELS.get(self.custody, "")
+
+    @property
+    def place_name(self):
+        return campus.place_name(self.place) if self.place else ""
 
     @property
     def label_list(self):
@@ -472,10 +483,47 @@ def add_desk_columns():
         app.logger.info("Added the security desk columns.")
 
 
+def set_place(item, place="", side=""):
+    """Put a report on the map.
+
+    A place picked on the map wins. Otherwise the location text is read, and the
+    place is only set when the text names exactly one, e.g. not plain "xerox".
+    """
+    place = (place or "").strip()
+    if campus.is_place(place):
+        item.place = place
+        item.place_side = "outside" if side == "outside" or place in campus.ROADS else "inside"
+        return
+    found = campus.resolve_place(item.location)
+    item.place = found["place"]
+    item.place_side = found["side"] if found["place"] else None
+
+
+def add_place_columns():
+    """Add item.place to tables that predate the map, and place old reports from their text."""
+    inspector = db.inspect(db.engine)
+    if "item" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("item")}
+    if "place" in existing:
+        return
+    db.session.execute(db.text("ALTER TABLE item ADD COLUMN place VARCHAR(40)"))
+    db.session.execute(db.text("ALTER TABLE item ADD COLUMN place_side VARCHAR(10)"))
+    db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_item_place ON item (place)"))
+    db.session.commit()
+    placed = 0
+    for item in Item.query.all():
+        set_place(item)
+        placed += bool(item.place)
+    db.session.commit()
+    app.logger.info("Added item.place and placed %s existing reports on the map.", placed)
+
+
 with app.app_context():
     db.create_all()
     backfill_item_owners()
     add_desk_columns()
+    add_place_columns()
 
 if not app.config["S3_BUCKET"]:
     Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
@@ -751,17 +799,13 @@ def index():
     status = request.args.get("status", "").strip()
     sort_order = request.args.get("sort", "newest").strip()
 
+    place = request.args.get("place", "").strip()
+
     items_query = Item.query
     if query:
-        pattern = f"%{query}%"
-        items_query = items_query.filter(
-            or_(
-                Item.title.ilike(pattern),
-                Item.description.ilike(pattern),
-                Item.location.ilike(pattern),
-                Item.category.ilike(pattern),
-            )
-        )
+        items_query = items_query.filter(search_filter(query))
+    if place:
+        items_query = items_query.filter(Item.place.in_(campus.GROUPS.get(place, [place])))
     if category:
         items_query = items_query.filter_by(category=category)
     if status in {"Lost", "Found", "Resolved"}:
@@ -801,8 +845,33 @@ def index():
         query=query,
         selected_category=category,
         selected_status=status,
+        selected_place=place,
+        selected_place_name=campus.place_short(place) or place.title(),
         sort_order=sort_order,
     )
+
+
+def text_filter(words):
+    pattern = f"%{words}%"
+    return or_(
+        Item.title.ilike(pattern),
+        Item.description.ilike(pattern),
+        Item.location.ilike(pattern),
+        Item.category.ilike(pattern),
+    )
+
+
+def search_filter(query):
+    """Reports matching the words, plus reports at any place the search names.
+
+    "mechanical parking" finds what was reported as "mech parking", and "bottle
+    canteen" finds bottles at the canteen, the puff shop or Nandini.
+    """
+    places, rest = campus.split_search(query)
+    if not places:
+        return text_filter(query)
+    at_place = Item.place.in_(places)
+    return or_(text_filter(query), and_(at_place, text_filter(rest)) if rest else at_place)
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -949,6 +1018,7 @@ def report():
             image_url=uploaded_url,
             image_labels=",".join(labels) or None,
         )
+        set_place(item, request.form.get("place"), request.form.get("place_side"))
         db.session.add(item)
         if status == "Found":
             # Every found item goes to the security desk. Staff logging one are at the desk already.
@@ -1001,6 +1071,8 @@ def edit_item(item_id):
         item.title = request.form.get("title", "").strip()
         item.description = request.form.get("description", "").strip()
         item.category = request.form.get("category", "").strip()
+        # A place picked on the map earlier stays unless the location text changes.
+        kept_place = item.place if request.form.get("location", "").strip() == item.location else ""
         item.location = request.form.get("location", "").strip()
         status = request.form.get("status", "").strip()
 
@@ -1012,6 +1084,8 @@ def edit_item(item_id):
             return render_template("edit.html", item=item)
 
         item.status = status
+        set_place(item, request.form.get("place") or kept_place,
+                  request.form.get("place_side") or item.place_side or "")
 
         if request.form.get("remove_image") == "1":
             delete_image(item.image_url)
@@ -1447,6 +1521,7 @@ def report_tag_found(token):
         contact=finder.email,
         owner_id=finder.id,
     )
+    set_place(item, request.form.get("place"), request.form.get("place_side"))
     db.session.add(item)
     if finder.works_desk:
         item.custody = "held"
@@ -1637,6 +1712,7 @@ def build_matches():
                 item,
                 tokens(f"{item.title} {item.description}"),
                 tokens(item.location),
+                item.place,
                 item.title.lower(),
                 item.category.lower(),
                 {label.lower() for label in item.label_list},
@@ -1647,14 +1723,17 @@ def build_matches():
     lost_prepared = prepared(lost_items)
     pairs = []
 
-    for found, found_text, found_location, found_title, found_category, found_labels in prepared(found_items):
+    for found, found_text, found_location, found_place, found_title, found_category, found_labels in prepared(found_items):
         # One matcher per found title: its index of that string is built once
         # and reused against every lost title.
         matcher = SequenceMatcher(None, "", found_title)
 
-        for lost, lost_text, lost_location, lost_title, lost_category, lost_labels in lost_prepared:
+        for lost, lost_text, lost_location, lost_place, lost_title, lost_category, lost_labels in lost_prepared:
             text_score = overlap(lost_text, found_text)
-            location_score = overlap(lost_location, found_location)
+            if lost_place and lost_place == found_place:
+                location_score = 1.0
+            else:
+                location_score = overlap(lost_location, found_location)
             days_apart = abs((lost.created_at - found.created_at).total_seconds()) / 86400
             recency_score = max(0.0, 1.0 - min(days_apart / 14.0, 1.0))
             same_category = lost_category == found_category

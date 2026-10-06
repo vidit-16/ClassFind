@@ -22,6 +22,7 @@ from app import (
     parse_report_rules,
     CustodyEvent,
     add_desk_columns,
+    add_place_columns,
     _rate_hits,
     MATCH_THRESHOLD,
     PAGE_SIZE,
@@ -498,6 +499,66 @@ class ClassFindTestCase(unittest.TestCase):
         self.post(f"/admin/users/{student_id}/staff", follow_redirects=True)
         with app.app_context():
             self.assertFalse(db.session.get(User, student_id).is_staff)
+
+    def test_a_report_is_put_on_the_map_from_its_location(self):
+        self.register()
+        self.report("Blue bottle", "Steel", "Accessories", "Mechanical parking, near the bikes", "Lost")
+        self.report("Pen drive", "16 GB", "Electronics", "Xerox", "Found")
+        with app.app_context():
+            bottle = Item.query.filter_by(title="Blue bottle").one()
+            self.assertEqual((bottle.place, bottle.place_side), ("mech-parking", "inside"))
+            # "Xerox" could be either shop, so it is left for the map picker.
+            self.assertIsNone(Item.query.filter_by(title="Pen drive").one().place)
+
+    def test_a_place_picked_on_the_map_wins_over_the_text(self):
+        self.register()
+        self.post("/report", data={
+            "title": "Umbrella", "description": "Black", "category": "Accessories",
+            "location": "by the xerox", "status": "Found", "place": "xerox-mech", "place_side": "outside",
+        })
+        self.post("/report", data={
+            "title": "Cap", "description": "Red", "category": "Clothing",
+            "location": "Canteen", "status": "Found", "place": "not-a-place",
+        })
+        with app.app_context():
+            umbrella = Item.query.filter_by(title="Umbrella").one()
+            self.assertEqual((umbrella.place, umbrella.place_side), ("xerox-mech", "outside"))
+            self.assertIsNone(Item.query.filter_by(title="Cap").one().place)
+
+    def test_search_by_any_name_for_a_place(self):
+        self.register()
+        self.report("Blue bottle", "Steel", "Accessories", "Mech parking", "Lost")
+        self.report("Red umbrella", "Folding", "Accessories", "Library", "Lost")
+        def results(url):
+            return self.client.get(url).data.split(b'id="results"', 1)[1]
+
+        page = results("/?q=mechanical+parking")
+        self.assertIn(b"Blue bottle", page)
+        self.assertNotIn(b"Red umbrella", page)
+        self.assertIn(b"Red umbrella", results("/?q=umbrella+cse+department"))
+        page = results("/?place=mech-parking")
+        self.assertIn(b"Blue bottle", page)
+        self.assertNotIn(b"Red umbrella", page)
+
+    def test_reports_at_the_same_place_match_on_location(self):
+        self.register()
+        self.report("Steel bottle", "Blue steel bottle with dents", "Accessories", "mech parking", "Lost")
+        self.report("Steel bottle", "Blue steel bottle with dents", "Accessories", "garage", "Found")
+        with app.app_context():
+            (_, _, _, reasons), = build_matches()
+            self.assertIn("similar location", reasons)
+
+    def test_older_reports_are_placed_when_the_column_is_added(self):
+        self.register()
+        self.report("Old wallet", "Brown", "Wallet & ID", "near the canteen xerox", "Found")
+        with app.app_context():
+            db.session.execute(db.text("DROP INDEX ix_item_place"))
+            db.session.execute(db.text("ALTER TABLE item DROP COLUMN place"))
+            db.session.execute(db.text("ALTER TABLE item DROP COLUMN place_side"))
+            db.session.commit()
+            add_place_columns()
+            row = db.session.execute(db.text("SELECT place, place_side FROM item")).one()
+            self.assertEqual(tuple(row), ("xerox-canteen", "outside"))
 
     def test_desk_columns_are_added_to_an_older_database(self):
         """A database from before the desk gets its columns, and found items count as held."""
