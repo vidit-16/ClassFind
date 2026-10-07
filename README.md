@@ -13,6 +13,11 @@ the security desk, and owners collect them with a one-time code.
 **Live app:** https://classfind-prod.eba-ttyqcasp.ap-south-1.elasticbeanstalk.com/
 
 <p align="center">
+  <img src="docs/campus_map.svg" alt="Map of the BIT campus: buildings, parking, gates and the paths between them, with the security desk marked" width="60%">
+</p>
+<p align="center"><em>The campus map ClassFind is built on: 29 places, the paths between them, and the security desk at the front of the Main Block.</em></p>
+
+<p align="center">
   <img src="docs/screenshots/classfind_home.png" alt="The home page: a map of the BIT campus beside the search and the latest reports" width="80%">
 </p>
 <p align="center"><em>The home page. Each building shows how many found items are there; the desk shows what it holds.</em></p>
@@ -58,10 +63,13 @@ the security desk, and owners collect them with a one-time code.
 - **Photos** go to S3 through presigned URLs. Amazon Rekognition labels them
   ("Bottle", "Backpack") and the labels count in matching and Retrace. A Lambda
   function makes thumbnails for the home page.
-- **Security desk.** Every found item goes to the desk. A student's found report
-  shows as awaiting drop-off until staff mark it received. Each item keeps a
-  chain of custody: reported, received, claim approved, released, with who did
-  each and when. Valuables left unclaimed for 72 hours move to the admin office.
+- **Security desk.** Every found item goes to the desk, and both sides confirm the
+  hand-over. The finder can mark it "I've handed it in", which puts it at the
+  top of the Desk page for staff to confirm or mark not received. If the desk
+  logs it first, it is held at once and the finder is asked "Was that you?";
+  "That wasn't me" flags it for the admin. Each item keeps a chain of custody:
+  reported, handed in, received, claim approved, released, with who did each
+  and when. Valuables left unclaimed for 72 hours move to the admin office.
 - **Claim** with proof only the owner would know; electronics, wallets and keys
   need a longer proof such as a serial number. Desk staff, not the finder,
   approve or reject claims.
@@ -80,6 +88,10 @@ the security desk, and owners collect them with a one-time code.
   accepts from their own account within 7 days.
 - **AI check.** One button on the admin page tries every configured model and
   shows "working" or the provider's exact error, never the key.
+- **Limits that suit a campus.** A whole class on campus Wi-Fi shares one
+  address, so sign-up allows 30 accounts an hour per address and sign-in 60
+  attempts a minute, while guessing one account's password is stopped after 10
+  tries a minute.
 
 ## How sentences and voice are understood
 
@@ -101,7 +113,8 @@ a current chat model and remembers it.
 
 ## How places are matched
 
-`static/campus.json` holds the places, their outlines, about 300 other names,
+`tools/build_campus.py` writes `static/campus.json` and the README map from one
+table. `static/campus.json` holds the places, their outlines, about 300 other names,
 the paths, and a graph of the paths with the door where each building meets
 one. `campus.py` turns text into a place: longest name first, a trailing "lab"
 or "block" belongs to the name before it, words like "near" or "outside" mark
@@ -204,8 +217,9 @@ check below.
 .venv/Scripts/python.exe -m unittest discover -s tests -v
 ```
 
-116 tests, with no network or AWS account needed. Besides accounts, reporting,
-the desk flow from drop-off to collection code, admin, CSRF, security headers
+122 tests, with no network or AWS account needed. Besides accounts, reporting,
+the desk flow from drop-off and two-sided hand-over to collection code, admin,
+CSRF, rate limits, security headers
 and uploads, they cover place names (aliases, misspellings, Kannada and Hindi,
 places that are ambiguous on purpose), the path graph being fully connected,
 Retrace, voice in each mode, every model fallback (busy, retired, timed out),
@@ -245,7 +259,7 @@ ClassFind/
 ├── tools/                  build_campus.py, smoke.py, mutate.py
 ├── tests/                  test_app.py, test_campus.py, test_quality.py,
 │                           test_thumbnail_lambda.py
-├── docs/                   AWS setup and screenshots
+├── docs/                   AWS setup, campus map image, screenshots
 └── .github/workflows/      CI on SQLite and PostgreSQL
 ```
 
