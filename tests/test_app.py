@@ -999,6 +999,16 @@ class ClassFindTestCase(unittest.TestCase):
         import campus
         self.assertEqual(campus.resolve_place("ನನಗೆ ಕೆಂಟಿನ್ ಒಂದು ಪರ್ಸ್ ಸಿಕಿಡೆ")["candidates"], ["canteen", "puff-shop", "nandini"])
 
+    def test_romanised_kannada_from_whisper(self):
+        fields = parse_report_rules("NANNGAI CANTEEN HATRA UNDU KAPPU PERS SIKKIDA")
+        self.assertEqual((fields["title"], fields["category"], fields["status"], fields["location"]),
+                         ("Black purse", "Wallet & ID", "Found", "Canteen"))
+
+    def test_the_prompts_list_the_campus_places(self):
+        for prompt in (app_module.REPORT_PROMPT, app_module.RETRACE_PROMPT, app_module.VOICE_PROMPT):
+            self.assertIn("Mech Parking", prompt)
+            self.assertIn("nannagai", prompt)
+
     def test_hinglish_and_kanglish_without_a_model(self):
         found = parse_report_rules("Mujhe computer lab Mein Ek key Mili Hai")
         self.assertEqual((found["title"], found["status"], found["category"]), ("Key", "Found", "Keys"))

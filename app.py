@@ -1484,6 +1484,7 @@ MIXED_WORDS = {
     "mil", "mila", "mili", "mile", "gaya", "gayi", "gya", "gyi", "hogaya", "hogya", "raha", "rahi", "diya", "liya", "kho", "gum", "ko", "ka", "ki", "ke", "se", "par", "pe", "aaj",
     "kal", "yeh", "ye", "woh", "wo", "nanna", "nange", "nanu", "ondu", "alli", "sikkitu", "sikkide",
     "hoyitu", "kaledu", "kalkonde", "ivattu", "ninne", "hatra", "hathra", "andar", "bahar", "paas",
+    "nanagai", "nannagai", "nanngai", "nanage", "nangai", "nanna", "undu", "sikkida", "sikkidu", "sikkithu", "aytu",
     # The same words in Devanagari and Kannada script.
     "मुझे", "मेरा", "मेरी", "मेरे", "मैंने", "एक", "में", "है", "था", "थी", "मिल", "मिला", "मिली", "मिले",
     "गया", "गयी", "गई", "खो", "गुम", "को", "का", "की", "के", "से", "पर", "आज", "कल", "यह", "वह", "पास",
@@ -1514,11 +1515,20 @@ def model_error(exc):
     return f"{type(exc).__name__}: {exc}"[:300]
 
 
+# Common item words in romanised Kannada and Hindi, and how speech-to-text spells them.
+MIXED_ITEM_WORDS = {
+    "kappu": "black", "kala": "black", "kaala": "black", "kempu": "red", "laal": "red", "neeli": "blue",
+    "nili": "blue", "neela": "blue", "hasiru": "green", "hara": "green", "bili": "white", "safed": "white",
+    "pers": "purse", "parse": "purse", "batli": "bottle", "botal": "bottle", "chhata": "umbrella",
+    "chabi": "key", "kitab": "book", "paani": "water", "neeru": "water",
+}
+
+
 def parse_mixed_rules(text, status):
     """A Hinglish or Kanglish sentence without a model: drop the joining words and the places."""
     # Split on spaces: vowel signs in Indian scripts are not word characters to a regex.
     words = [w.strip(".,!?;:'\"") for w in text.split()]
-    words = [w for w in words if w and w.lower() not in MIXED_WORDS]
+    words = [MIXED_ITEM_WORDS.get(w.lower(), w) for w in words if w and w.lower() not in MIXED_WORDS]
     _, rest = campus.split_search(" ".join(words))
     title = " ".join(w for w in rest.split() if w not in STOP_WORDS)[:80].strip()
     first = campus.find_places(text)
@@ -1557,6 +1567,12 @@ LANGUAGES_NOTE = (
     "A purse, wallet, ID card or bus pass is Wallet & ID; a bottle, bag or umbrella is Accessories. "
     "Always reply in English. Found means they found or picked up something (found, mila, mili, "
     "mil gaya, sikkitu, sikkide); Lost means they lost it (lost, kho gaya, gum gaya, kaledu hoyitu). "
+    "Words like nanage, nannagai, nanna, nanu, ondu, alli, hatra, mujhe, mera, meri, ek, mein, paas mean "
+    "me, my, one, in or near: they are never part of an item or a place name. "
+    "The campus places are: " + ", ".join(sorted({p["short"] for p in campus.CAMPUS["places"]})) + ". "
+    "Departments, labs, the library, the bank and offices are in the Main Block. When the student names "
+    "one of these places, however it is spelt or in whatever language (e.g. मेक पार्किंग is Mech Parking, "
+    "ಕ್ಯಾಂಟೀನ್ is Canteen), write that place's name exactly as listed. "
 )
 REPORT_PROMPT = (
     "Extract a campus lost-and-found report. " + LANGUAGES_NOTE +
@@ -1831,7 +1847,7 @@ RETRACE_PROMPT = (
     "A student describes what they lost and where they went on campus. " + LANGUAGES_NOTE +
     "Reply with JSON only: "
     '{"item": the lost item in a few English words or "", '
-    '"places": the campus places they mention, in the order they went, each in English, '
+    '"places": the campus places they mention, in the order they went, each by its name from the list, '
     '"when": "today", "yesterday" or "week"}. '
     "Use the place names as said, translated to English; do not add places that are not mentioned."
 )
@@ -1895,7 +1911,7 @@ VOICE_PROMPT = (
     'computer science lab.\" Not in the first person, '
     f'"category": one of {REPORT_CATEGORIES}, '
     '"location": where the item was, in English, or "", '
-    '"places": every campus place they mention, in English, in the order they went there, '
+    '"places": every campus place they mention, by its name from the list, in the order they went there, '
     '"when": "today", "yesterday" or "week"}. Do not invent anything they did not say.'
 )
 VOICE_MAX_BYTES = 2 * 1024 * 1024
