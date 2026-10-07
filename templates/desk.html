@@ -11,6 +11,7 @@
 </section>
 
 <section class="claim-overview desk-overview">
+  <div class="claim-overview-card"><span>To confirm</span><strong>{{ handed|length }}</strong><small>Finder says it's handed in</small></div>
   <div class="claim-overview-card"><span>Awaiting drop-off</span><strong>{{ awaiting|length }}</strong><small>Reported, not yet handed in</small></div>
   <div class="claim-overview-card"><span>Held at desk</span><strong>{{ held|length }}</strong><small>In storage now</small></div>
   <div class="claim-overview-card"><span>Claims to review</span><strong>{{ pending|length }}</strong><small>Check the proof</small></div>
@@ -31,6 +32,46 @@
     </div>
   </form>
 </section>
+
+{% if handed %}
+<section class="claim-section">
+  <div class="results-header"><div><p class="section-kicker">HANDED IN, PLEASE CONFIRM</p><h2>{{ handed|length }} to check</h2></div><span class="queue-note">The finder says these are at the desk</span></div>
+  <div class="claim-list">
+    {% for item in handed %}
+    <article class="claim-card claim-pending">
+      <div class="claim-main">
+        <span class="item-category">{{ item.category }}</span>
+        <h3><a href="{{ url_for('item_detail', item_id=item.id) }}">{{ item.title }}</a></h3>
+        <p class="claim-by">Handed in by {{ item.reporter_name }} · ⌖ {{ item.location }}</p>
+        <small>Reported {{ item.created_at.strftime("%d %b %Y, %I:%M %p") }}</small>
+      </div>
+      <div class="claim-actions">
+        <form method="post" action="{{ url_for('desk_receive', item_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="primary-btn compact" type="submit">Confirm received</button></form>
+        <form method="post" action="{{ url_for('desk_not_received', item_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger-btn compact-btn" type="submit">Not received</button></form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if disputed %}
+<section class="claim-section">
+  <div class="notice warn"><p><strong>{{ disputed|length }}</strong> handover{{ "s" if disputed|length != 1 }} the finder says {{ "were" if disputed|length != 1 else "was" }} not theirs. Check the custody log and ask at the desk.</p></div>
+  <div class="claim-list">
+    {% for item in disputed %}
+    <article class="claim-card">
+      <div class="claim-main">
+        <h3><a href="{{ url_for('item_detail', item_id=item.id) }}">{{ item.title }}</a></h3>
+        <p class="claim-by">Reported by {{ item.reporter_name }} · {{ item.custody_label }}</p>
+      </div>
+      <div class="claim-actions"><a class="card-link" href="{{ url_for('item_detail', item_id=item.id) }}">Custody log →</a></div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
 
 <section class="claim-section">
   <div class="results-header"><div><p class="section-kicker">CLAIMS TO REVIEW</p><h2>{{ pending|length }} waiting</h2></div><span class="queue-note">Approve only when the proof matches the item</span></div>

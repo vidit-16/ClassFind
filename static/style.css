@@ -286,3 +286,7 @@ body::after{content:"";position:fixed;z-index:-1;width:420px;height:420px;right:
 .notice.warn{background:#fbf1e3;border-color:#ecd3ac}
 .flash-stack{position:relative;z-index:1}
 .invite-question{margin:0 0 18px;font-size:16px;line-height:1.6}.invite-question strong{display:block;font:600 20px "Space Grotesk",sans-serif;margin-bottom:4px}
+.custody-handed{background:#fbf1e3;color:#8a5a12}
+.notice .secondary-btn.compact{padding:10px 14px}
+form.notice{margin-top:4px}
+.desk-overview{grid-template-columns:repeat(5,minmax(0,1fr))}@media(max-width:900px){.desk-overview{grid-template-columns:repeat(2,minmax(0,1fr))}}

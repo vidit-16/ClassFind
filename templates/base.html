@@ -32,7 +32,7 @@
       <a class="{% if request.endpoint == 'claims' %}active{% endif %}" href="{{ url_for('claims') }}">Claims{% if incoming_claim_count or outgoing_claim_count %} <span class="count-badge">{{ incoming_claim_count + outgoing_claim_count }}</span>{% endif %}</a>
       <a class="{% if request.endpoint == 'profile' %}active{% endif %}" href="{{ url_for('profile') }}">My Reports</a>
       <a class="{% if request.endpoint == 'tags' %}active{% endif %}" href="{{ url_for('tags') }}">QR Tags</a>
-      {% if current_user.works_desk %}<a class="{% if request.endpoint == 'desk' %}active{% endif %}" href="{{ url_for('desk') }}">Desk</a>{% endif %}
+      {% if current_user.works_desk %}<a class="{% if request.endpoint == 'desk' %}active{% endif %}" href="{{ url_for('desk') }}">Desk{% if desk_queue %} <span class="count-badge">{{ desk_queue }}</span>{% endif %}</a>{% endif %}
       {% if current_user.is_admin %}<a class="{% if request.endpoint == 'admin_dashboard' %}active{% endif %}" href="{{ url_for('admin_dashboard') }}">Admin</a>{% endif %}
       <form method="post" action="{{ url_for('logout') }}" class="logout-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="nav-logout" type="submit">Sign out</button></form>
     {% else %}
@@ -53,6 +53,23 @@
   <div class="notice">
     <span><strong>{{ staff_invite.invited_by.name if staff_invite.invited_by else "An admin" }}</strong> invited you to work the security desk.</span>
     <a class="primary-btn compact" href="{{ url_for('staff_invite', token=staff_invite.token) }}">See the invitation</a>
+  </div>
+  {% endif %}
+  {% for check in handover_checks %}
+  <div class="notice">
+    <p>The security desk logged your <strong>{{ check.title }}</strong> as received from you. Was that you?</p>
+    <form class="actions" method="post" action="{{ url_for('answer_handover_check', item_id=check.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ request.full_path if request.method == 'GET' else url_for('index') }}">
+      <button class="secondary-btn compact" type="submit" name="answer" value="no">That wasn't me</button>
+      <button class="primary-btn compact" type="submit" name="answer" value="yes">Yes, that was me</button>
+    </form>
+  </div>
+  {% endfor %}
+  {% if desk_queue and request.endpoint != "desk" %}
+  <div class="notice warn">
+    <p><strong>{{ desk_queue }}</strong> item{{ "s" if desk_queue != 1 }} handed in by finders {{ "are" if desk_queue != 1 else "is" }} waiting for the desk to confirm.</p>
+    <a class="primary-btn compact" href="{{ url_for('desk') }}">Open the desk</a>
   </div>
   {% endif %}
   {% block content %}{% endblock %}

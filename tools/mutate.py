@@ -30,6 +30,8 @@ TARGETS = [
      ["handover", "code", "collect", "desk", "reissue"]),
     ("app.py", {"escalate_unclaimed_valuables"}, ["escalat", "valuable", "office"]),
     ("app.py", {"set_place", "search_filter"}, ["place", "search", "picker"]),
+    ("app.py", {"desk_receive", "desk_not_received", "mark_handed_in", "answer_handover_check"},
+     ["handed", "handover", "finder", "not_received", "desk"]),
 ]
 
 COMPARE_SWAPS = {ast.Lt: ast.LtE, ast.LtE: ast.Lt, ast.Gt: ast.GtE, ast.GtE: ast.Gt,
