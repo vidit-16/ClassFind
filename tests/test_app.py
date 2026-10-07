@@ -637,6 +637,8 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertIn(b'data-place="main-block"', page)
         self.assertIn(b'data-badge="mech-parking"', page)
         self.assertIn(b"map.js", page)
+        self.assertIn(b"Someone may have found it.", page)
+        self.assertIn(b'data-retrace="Retrace your steps."', page)
 
     def test_the_place_lookup_names_the_candidates(self):
         found = self.client.get("/api/place?q=near+the+canteen").get_json()

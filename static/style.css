@@ -277,3 +277,5 @@ body::after{content:"";position:fixed;z-index:-1;width:420px;height:420px;right:
 .search-heard{margin:-2px 0 0;min-height:0}
 .mic-button.working .mic-icon{background:var(--muted)}
 .picker-choice.needs-pick{color:var(--lost)}
+.headline-line{display:inline-block;transition:opacity .16s ease,transform .16s ease}.headline-line.swapping{opacity:0;transform:translateY(6px)}
+@media(prefers-reduced-motion:reduce){.headline-line{transition:none}}
