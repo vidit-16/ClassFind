@@ -1570,7 +1570,12 @@ LANGUAGES_NOTE = (
     "Words like nanage, nannagai, nanna, nanu, ondu, alli, hatra, mujhe, mera, meri, ek, mein, paas mean "
     "me, my, one, in or near: they are never part of an item or a place name. "
     "The campus places are: " + ", ".join(sorted({p["short"] for p in campus.CAMPUS["places"]})) + ". "
-    "Departments, labs, the library, the bank and offices are in the Main Block. When the student names "
+    "Other names for them: garage or mechanical parking is Mech Parking; mechanical block, mech department, "
+    "robotics or RAI is Mech Blocks; the library, labs, CSE, ISE, ECE, EEE, civil and AI/ML departments, "
+    "quadrangle, admin office, principal, placement cell, seminar hall and the bank are in the Main Block; "
+    "chemistry or physics is Chem/Phy; MCA is MBA; workshop is Workshops; Upahara Darshini is KIMS Canteen; "
+    "the ATM is ATM; plain \"canteen\" may be Canteen, Puff shop or Nandini, so leave it as Canteen. "
+    "When the student names "
     "one of these places, however it is spelt or in whatever language (e.g. मेक पार्किंग is Mech Parking, "
     "ಕ್ಯಾಂಟೀನ್ is Canteen), write that place's name exactly as listed. "
 )
@@ -1581,7 +1586,9 @@ REPORT_PROMPT = (
     '"description": one or two English sentences for whoever might own it: the item, any details the '
     "student gave (colour, brand, size, marks, what was with it) and where it was found or lost, e.g. "
     '"A black notebook found in the computer science lab." Not in the first person, '
-    f'"category": one of {REPORT_CATEGORIES}, "location": the place on campus in English or "", '
+    f'"category": one of {REPORT_CATEGORIES}, '
+    '"location": where exactly, in English, in the student\'s words, e.g. "CS lab, 3rd floor", or "", '
+    '"place": the campus place from the list that is in, or "", '
     '"status": "Lost" or "Found"}. Do not invent details.'
 )
 
@@ -1828,7 +1835,24 @@ def clean_parsed_report(fields, text):
     if named:
         result["category"] = named
     result["status"] = fields.get("status") if fields.get("status") in {"Lost", "Found"} else fallback["status"]
+    # When the words alone don't point to a place but the model named one from the
+    # list, add that name, so the map picker and the matcher both see it.
+    named = place_by_name(fields.get("place"))
+    if named and not campus.find_places(result["location"]):
+        spot = result["location"].strip()
+        result["location"] = (f"{spot} ({campus.place_short(named)})" if spot else campus.place_short(named))[:120]
     return result
+
+
+def place_by_name(name):
+    """The place id for a name from the campus list (short or full name), or None."""
+    if not isinstance(name, str) or not name.strip():
+        return None
+    wanted = campus.normalise(name)
+    for place in campus.CAMPUS["places"]:
+        if wanted in (campus.normalise(place["short"]), campus.normalise(place["name"])):
+            return place["id"]
+    return None
 
 
 @app.post("/report/parse")
@@ -1910,7 +1934,8 @@ VOICE_PROMPT = (
     "gave (colour, brand, size, marks) and where it was found or lost, e.g. \"A black notebook found in the "
     'computer science lab.\" Not in the first person, '
     f'"category": one of {REPORT_CATEGORIES}, '
-    '"location": where the item was, in English, or "", '
+    '"location": where exactly, in English, in their words, e.g. "CS lab, 3rd floor", or "", '
+    '"place": the campus place from the list that is in, or "", '
     '"places": every campus place they mention, by its name from the list, in the order they went there, '
     '"when": "today", "yesterday" or "week"}. Do not invent anything they did not say.'
 )

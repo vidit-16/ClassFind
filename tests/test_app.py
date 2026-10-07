@@ -1009,6 +1009,22 @@ class ClassFindTestCase(unittest.TestCase):
             self.assertIn("Mech Parking", prompt)
             self.assertIn("nannagai", prompt)
 
+    def test_the_models_place_is_kept_when_the_words_are_vague(self):
+        fields = clean_parsed_report({"title": "Bottle", "description": "A bottle.", "category": "Accessories",
+                                      "location": "near the bikes", "place": "Mech Parking", "status": "Lost"}, "x")
+        self.assertEqual(fields["location"], "near the bikes (Mech Parking)")
+        fields = clean_parsed_report({"title": "Pen", "location": "CS lab, 3rd floor", "place": "Main Block",
+                                      "status": "Found", "category": "Stationery"}, "x")
+        self.assertEqual(fields["location"], "CS lab, 3rd floor")
+        fields = clean_parsed_report({"title": "Pen", "location": "", "place": "Made-up Hall",
+                                      "status": "Found", "category": "Stationery"}, "lost a pen")
+        self.assertNotIn("Made-up", fields["location"])
+
+    def test_the_prompts_teach_the_other_names(self):
+        for prompt in (app_module.REPORT_PROMPT, app_module.VOICE_PROMPT):
+            self.assertIn("mechanical parking is Mech Parking", prompt)
+            self.assertIn('"place"', prompt)
+
     def test_hinglish_and_kanglish_without_a_model(self):
         found = parse_report_rules("Mujhe computer lab Mein Ek key Mili Hai")
         self.assertEqual((found["title"], found["status"], found["category"]), ("Key", "Found", "Keys"))
