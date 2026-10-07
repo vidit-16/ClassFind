@@ -114,7 +114,7 @@ a current chat model and remembers it.
 ## How places are matched
 
 `tools/build_campus.py` writes `static/campus.json` and the README map from one
-table. `static/campus.json` holds the places, their outlines, about 300 other names,
+table. `static/campus.json` holds the places, their outlines, 285 other names,
 the paths, and a graph of the paths with the door where each building meets
 one. `campus.py` turns text into a place: longest name first, a trailing "lab"
 or "block" belongs to the name before it, words like "near" or "outside" mark
