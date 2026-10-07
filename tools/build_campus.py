@@ -335,6 +335,16 @@ COLOURS = {"bit": ("#d2e6d9", "#4f8a6b"), "block": ("#e8eae6", "#a9b0a8"), "park
            "small": ("#e8eae6", "#a9b0a8"), "gate": ("#f2d48d", "#b8923b")}
 
 
+# Where the README map puts the names of small places, so none sits on a path
+# or another block: (x, y, text-anchor) in map coordinates.
+LABEL_AT = {
+    "vs-gate": (128, 522, "middle"), "p1": (190, 652, "middle"), "chem-phy": (780, 458, "middle"),
+    "society": (730, 637, "middle"), "mba": (780, 709, "middle"), "xerox-mech": (724, 768, "middle"),
+    "main-gate": (128, 745, "middle"), "xerox-canteen": (601, 878, "middle"), "puff-shop": (605, 950, "middle"),
+    "nandini": (140, 924, "end"), "vcs-gate": (84, 1012, "middle"),
+}
+
+
 def draw_map(data):
     """docs/campus_map.svg for the README: the same places and paths the app draws, labelled."""
     w, h = data["viewBox"][2], data["viewBox"][3]
@@ -354,10 +364,14 @@ def draw_map(data):
         xs = [x for x, _ in place["outline"]]
         ys = [y for _, y in place["outline"]]
         cx, cy, width = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, max(xs) - min(xs)
-        size, anchor = (14, "middle") if width >= 60 else (11, "start")
+        size, anchor, ty = (14, "middle", cy + 5) if width >= 60 else (11, "start", cy + 5)
         if width < 60:
             cx = max(xs) + 6
-        out.append(f'<text x="{cx:.0f}" y="{cy + 5:.0f}" font-size="{size}" font-weight="700" fill="#24352b" '
+        if place["id"] in LABEL_AT:
+            cx, ty, anchor = LABEL_AT[place["id"]]
+        # A halo in the background colour keeps a name readable where it crosses a line.
+        out.append(f'<text x="{cx:.0f}" y="{ty:.0f}" font-size="{size}" font-weight="700" fill="#24352b" '
+                   f'stroke="#f4f6f1" stroke-width="3" paint-order="stroke" '
                    f'text-anchor="{anchor}">{place["short"]}</text>')
     x, y = data["desk"]["point"]
     out.append(f'<circle cx="{x}" cy="{y}" r="9" fill="#e3a21f" stroke="#fff" stroke-width="3"/>'
