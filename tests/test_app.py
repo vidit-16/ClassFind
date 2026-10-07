@@ -424,6 +424,94 @@ class ClassFindTestCase(unittest.TestCase):
         response = self.post("/desk/handover", data={"code": code}, follow_redirects=True)
         self.assertIn(b"does not match", response.data)
 
+    def test_finder_says_handed_in_and_the_desk_confirms(self):
+        item_id = self.found_item()
+        self.register_staff()
+        self.logout()
+        self.login("finder@example.com")
+        page = self.client.get(f"/item/{item_id}").data
+        self.assertIn(b"handed it in</button>", page)
+        with mock.patch("app.send_email") as sent:
+            self.post(f"/item/{item_id}/handed-in", follow_redirects=True)
+        self.assertIn("desk@example.com", [call.args[0] for call in sent.call_args_list])
+        with app.app_context():
+            self.assertEqual(db.session.get(Item, item_id).custody, "handed")
+        self.logout()
+        self.login("desk@example.com")
+        home = self.client.get("/").data
+        self.assertIn(b"waiting for the desk to confirm", home)
+        self.assertIn(b'Desk <span class="count-badge">1</span>', home)
+        self.post(f"/desk/item/{item_id}/received", follow_redirects=True)
+        with app.app_context():
+            item = db.session.get(Item, item_id)
+            self.assertEqual((item.custody, item.finder_check), ("held", "confirmed"))
+            self.assertIn("confirming the finder", item.events[-1].action)
+        self.logout()
+        self.login("finder@example.com")
+        # The finder already said so, so they are not asked again.
+        self.assertNotIn(b"Was that you?", self.client.get("/").data)
+
+    def test_desk_says_not_received_and_the_finder_is_told(self):
+        item_id = self.found_item()
+        self.login("finder@example.com")
+        self.post(f"/item/{item_id}/handed-in")
+        self.logout()
+        self.register_staff()
+        with mock.patch("app.send_email") as sent:
+            self.post(f"/desk/item/{item_id}/not-received", follow_redirects=True)
+        self.assertEqual(sent.call_args.args[0], "finder@example.com")
+        with app.app_context():
+            self.assertEqual(db.session.get(Item, item_id).custody, "awaiting")
+
+    def test_desk_receives_first_and_the_finder_confirms_or_disputes(self):
+        first = self.found_item("Blue bottle")
+        self.login("finder@example.com")
+        self.report("Red cap", "Cotton cap", "Clothing", "Gym", "Found")
+        self.logout()
+        with app.app_context():
+            second = Item.query.filter_by(title="Red cap").one().id
+        self.register_admin("admin@example.com")
+        self.post(f"/desk/item/{first}/received")
+        self.post(f"/desk/item/{second}/received")
+        with app.app_context():
+            # Held at once, so the owner can claim it while the finder is asked.
+            self.assertEqual(db.session.get(Item, first).custody, "held")
+            self.assertEqual(db.session.get(Item, first).finder_check, "pending")
+        self.logout()
+        self.login("finder@example.com")
+        home = self.client.get("/").data
+        self.assertEqual(home.count(b"Was that you?"), 2)
+        self.post(f"/item/{first}/handover-check", data={"answer": "yes", "next": "/"})
+        with mock.patch("app.send_email") as sent:
+            response = self.post(f"/item/{second}/handover-check", data={"answer": "no", "next": "//evil.example"})
+        self.assertEqual(sent.call_args.args[0], "admin@example.com")
+        self.assertTrue(response.headers["Location"].endswith(f"/item/{second}"))
+        self.assertNotIn(b"Was that you?", self.client.get("/").data)
+        with app.app_context():
+            self.assertEqual(db.session.get(Item, first).finder_check, "confirmed")
+            self.assertEqual(db.session.get(Item, second).finder_check, "disputed")
+        self.logout()
+        self.login("admin@example.com")
+        desk = self.client.get("/desk").data
+        self.assertIn(b"not theirs", desk)
+        self.assertIn(b"Red cap", desk.split(b"not theirs", 1)[1])
+
+    def test_only_the_finder_can_mark_an_item_handed_in(self):
+        item_id = self.found_item()
+        self.register("Someone", "someone@example.com")
+        self.post(f"/item/{item_id}/handed-in", follow_redirects=True)
+        self.post(f"/item/{item_id}/handover-check", data={"answer": "no"})
+        with app.app_context():
+            item = db.session.get(Item, item_id)
+            self.assertEqual((item.custody, item.finder_check), ("awaiting", None))
+
+    def test_the_handover_column_is_added_to_an_older_database(self):
+        with app.app_context():
+            db.session.execute(db.text("ALTER TABLE item DROP COLUMN finder_check"))
+            db.session.commit()
+            app_module.add_handover_columns()
+            self.assertIn("finder_check", {c["name"] for c in db.inspect(db.engine).get_columns("item")})
+
     def test_handover_waits_for_the_item_to_reach_the_desk(self):
         item_id = self.found_item()
         self.register("Owner", "owner@example.com")

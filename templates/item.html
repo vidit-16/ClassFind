@@ -20,6 +20,15 @@
       <div><span>Contact</span><strong><a href="{{ url_for('login', next=request.path) }}">Sign in to see contact</a></strong></div>
       {% endif %}
     </div>
+    {% if can_manage and item.status == "Found" and item.custody == "awaiting" and item.owner_id == current_user.id %}
+    <form class="notice" method="post" action="{{ url_for('mark_handed_in', item_id=item.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <p>Have you handed this in at the security desk in the Main Block?</p>
+      <button class="primary-btn compact" type="submit">I've handed it in</button>
+    </form>
+    {% elif can_manage and item.custody == "handed" %}
+    <div class="notice"><p>You marked this as handed in. The desk will confirm once they've checked.</p></div>
+    {% endif %}
     {% if can_manage %}
     <div class="detail-actions">
       <a class="secondary-btn" href="{{ url_for('edit_item', item_id=item.id) }}">Edit report</a>

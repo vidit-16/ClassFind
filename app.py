@@ -272,6 +272,9 @@ class Item(db.Model):
     # Where a found item physically is: awaiting drop-off at the security desk,
     # held there, or released to its owner. Empty for lost reports.
     custody = db.Column(db.String(20))
+    # The finder's answer once the desk logs the item as received: "pending"
+    # until they confirm it was them, "confirmed", or "disputed".
+    finder_check = db.Column(db.String(10))
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     claims = db.relationship("Claim", back_populates="item", cascade="all, delete-orphan")
     events = db.relationship(
@@ -411,6 +414,7 @@ class CustodyEvent(db.Model):
 VALUABLE_CATEGORIES = {"Electronics", "Wallet & ID", "Keys"}
 CUSTODY_LABELS = {
     "awaiting": "Awaiting drop-off at the security desk",
+    "handed": "Handed in, waiting for the desk to confirm",
     "held": "Held at the security desk",
     "office": "Moved to the admin office for safekeeping",
     "released": "Returned to its owner",
@@ -529,6 +533,16 @@ def set_place(item, place="", side=""):
     item.place_side = found["side"] if found["place"] else None
 
 
+def add_handover_columns():
+    """Add item.finder_check to tables that predate the two-sided handover."""
+    inspector = db.inspect(db.engine)
+    if "item" not in inspector.get_table_names():
+        return
+    if "finder_check" not in {column["name"] for column in inspector.get_columns("item")}:
+        db.session.execute(db.text("ALTER TABLE item ADD COLUMN finder_check VARCHAR(10)"))
+        db.session.commit()
+
+
 def add_place_columns():
     """Add item.place to tables that predate the map, and place old reports from their text."""
     inspector = db.inspect(db.engine)
@@ -554,6 +568,7 @@ with app.app_context():
     backfill_item_owners()
     add_desk_columns()
     add_place_columns()
+    add_handover_columns()
 
 if not app.config["S3_BUCKET"]:
     Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
@@ -657,11 +672,17 @@ def inject_current_user():
     if user and not user.works_desk:
         invite = next((i for i in StaffInvite.query.filter_by(email=user.email.lower(), responded_at=None)
                        .order_by(StaffInvite.created_at.desc()).limit(3) if i.is_open), None)
+    handover_checks = []
+    if user:
+        handover_checks = Item.query.filter_by(owner_id=user.id, finder_check="pending").all()
+    desk_queue = Item.query.filter_by(status="Found", custody="handed").count() if user and user.works_desk else 0
     return {
         "current_user": user,
         "incoming_claim_count": incoming,
         "outgoing_claim_count": outgoing,
         "staff_invite": invite,
+        "handover_checks": handover_checks,
+        "desk_queue": desk_queue,
     }
 
 
@@ -2287,33 +2308,130 @@ def desk():
     if moved:
         flash(f"{moved} unclaimed valuable item{'s' if moved != 1 else ''} moved to the admin office.", "success")
     awaiting = Item.query.filter_by(status="Found", custody="awaiting").order_by(Item.created_at).all()
+    handed = Item.query.filter_by(status="Found", custody="handed").order_by(Item.created_at).all()
+    disputed = Item.query.filter_by(finder_check="disputed").order_by(Item.created_at.desc()).all()
     held = (Item.query.filter(Item.status == "Found", Item.custody.in_(IN_STORAGE))
             .order_by(Item.created_at).all())
     pending = Claim.query.filter_by(status="Pending").order_by(Claim.created_at).all()
     approved = Claim.query.filter_by(status="Approved").order_by(Claim.decided_at).all()
-    return render_template("desk.html", awaiting=awaiting, held=held, pending=pending, approved=approved)
+    return render_template("desk.html", awaiting=awaiting, handed=handed, disputed=disputed, held=held,
+                           pending=pending, approved=approved)
 
 
 @app.post("/desk/item/<int:item_id>/received")
 @staff_required
 def desk_receive(item_id):
     item = db.get_or_404(Item, item_id)
-    if item.status != "Found" or item.custody != "awaiting":
-        flash("That item is not awaiting drop-off.", "error")
+    if item.status != "Found" or item.custody not in {"awaiting", "handed"}:
+        flash("That item is not waiting to be received.", "error")
         return redirect(url_for("desk"))
+    staff = get_current_user()
+    finder = db.session.get(User, item.owner_id) if item.owner_id else None
+    finder_said_so = item.custody == "handed"
     item.custody = "held"
-    log_custody(item, "Received at the security desk", get_current_user())
+    if finder_said_so:
+        item.finder_check = "confirmed"
+        log_custody(item, "Received at the security desk, confirming the finder's hand-in", staff)
+    else:
+        # The item is held at once, so the owner can claim it; the finder is
+        # asked to confirm it was them, but nothing waits on their answer.
+        item.finder_check = "pending" if finder and finder.id != staff.id else None
+        log_custody(item, "Received at the security desk", staff)
+    db.session.commit()
+    if finder and finder.id != staff.id:
+        ask = "" if finder_said_so else (
+            "\n\nIf that wasn't you, open ClassFind and tell us: there is a notice on every page "
+            f"until you answer.\n{url_for('item_detail', item_id=item.id, _external=True)}")
+        send_email(
+            finder.email,
+            f"The desk received {item.title}",
+            f"Hi {finder.name},\n\nThe security desk logged \"{item.title}\" as received from you. "
+            f"We'll take it from here. Thank you for returning it.{ask}",
+        )
+    flash(f"{item.title} is now held at the desk.", "success")
+    return redirect(url_for("desk"))
+
+
+@app.post("/desk/item/<int:item_id>/not-received")
+@staff_required
+def desk_not_received(item_id):
+    """The finder said they handed it in, but the desk does not have it."""
+    item = db.get_or_404(Item, item_id)
+    if item.status != "Found" or item.custody != "handed":
+        flash("That item is not waiting for the desk to confirm.", "error")
+        return redirect(url_for("desk"))
+    item.custody = "awaiting"
+    log_custody(item, "The desk has not received it; back to awaiting drop-off", get_current_user())
     db.session.commit()
     finder = db.session.get(User, item.owner_id) if item.owner_id else None
     if finder:
         send_email(
             finder.email,
-            f"Thanks for handing in {item.title}",
-            f"Hi {finder.name},\n\nThe security desk has received \"{item.title}\". "
-            "We'll take it from here. Thank you for returning it.",
+            f"The desk hasn't received {item.title}",
+            f"Hi {finder.name},\n\nYou marked \"{item.title}\" as handed in, but the security desk "
+            "doesn't have it. If you still have it, please bring it to the desk in the Main Block.\n"
+            f"{url_for('item_detail', item_id=item.id, _external=True)}",
         )
-    flash(f"{item.title} is now held at the desk.", "success")
+    flash(f"{item.title} is back to awaiting drop-off, and the finder has been told.", "success")
     return redirect(url_for("desk"))
+
+
+@app.post("/item/<int:item_id>/handed-in")
+@login_required
+def mark_handed_in(item_id):
+    """The finder says they handed the item in; the desk is asked to confirm."""
+    item = db.get_or_404(Item, item_id)
+    user = get_current_user()
+    if not owns_item(user, item) or item.status != "Found" or item.custody != "awaiting":
+        flash("Only the finder can mark an item awaiting drop-off as handed in.", "error")
+        return redirect(url_for("item_detail", item_id=item.id))
+    item.custody = "handed"
+    log_custody(item, "Finder says they handed it in at the security desk", user)
+    db.session.commit()
+    for staff in User.query.filter(or_(User.is_staff.is_(True), User.is_admin.is_(True))).all():
+        send_email(
+            staff.email,
+            f"Confirm you received {item.title}",
+            f"{user.name} says they handed \"{item.title}\" in at the security desk. "
+            "Please confirm on the Desk page whether you have it.\n"
+            f"{url_for('desk', _external=True)}",
+        )
+    flash("Thanks! The desk will confirm once they've checked.", "success")
+    return redirect(url_for("item_detail", item_id=item.id))
+
+
+@app.post("/item/<int:item_id>/handover-check")
+@login_required
+def answer_handover_check(item_id):
+    """The finder confirms the desk's record, or says it wasn't them."""
+    item = db.get_or_404(Item, item_id)
+    user = get_current_user()
+    if item.owner_id != user.id or item.finder_check != "pending":
+        flash("There is nothing to confirm for that item.", "error")
+        return redirect(url_for("profile"))
+    if request.form.get("answer") == "yes":
+        item.finder_check = "confirmed"
+        log_custody(item, "Finder confirmed handing it in", user)
+        flash("Thanks for confirming.", "success")
+    else:
+        item.finder_check = "disputed"
+        log_custody(item, "Finder says they did not hand this in; flagged for the admin", user)
+        admin = admin_email()
+        if admin:
+            send_email(
+                admin,
+                f"Check the handover of {item.title}",
+                f"{user.name} says they did not hand in \"{item.title}\", which the desk logged as "
+                "received from them. Please check it.\n"
+                f"{url_for('item_detail', item_id=item.id, _external=True)}",
+            )
+        flash("Thanks for telling us. The admin will check this handover.", "success")
+    db.session.commit()
+    # Back to the page the notice was on, but only ever within this site.
+    target = request.form.get("next", "")
+    if not target.startswith("/") or target.startswith("//"):
+        target = url_for("item_detail", item_id=item.id)
+    return redirect(target)
 
 
 @app.post("/claims/<int:claim_id>/reissue")
