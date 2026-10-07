@@ -1,4 +1,5 @@
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import re
@@ -1553,6 +1554,7 @@ CATEGORY_WORDS = {
 
 LANGUAGES_NOTE = (
     "The student may write or speak in English, Hindi, Kannada, Hinglish, Kanglish or a mix. "
+    "A purse, wallet, ID card or bus pass is Wallet & ID; a bottle, bag or umbrella is Accessories. "
     "Always reply in English. Found means they found or picked up something (found, mila, mili, "
     "mil gaya, sikkitu, sikkide); Lost means they lost it (lost, kho gaya, gum gaya, kaledu hoyitu). "
 )
@@ -1787,6 +1789,15 @@ def ask_provider(provider, text, prompt):
         return None
 
 
+def category_of(title):
+    """The category an item's name plainly belongs to, or "" when it does not say."""
+    lowered = (title or "").lower()
+    for name, words in CATEGORY_WORDS.items():
+        if any(re.search(rf"\b{re.escape(word)}\b", lowered) for word in words):
+            return name
+    return ""
+
+
 def clean_parsed_report(fields, text):
     """Keep only valid values, so the model can never put junk in the form."""
     fallback = parse_report_rules(text)
@@ -1797,6 +1808,9 @@ def clean_parsed_report(fields, text):
         value = fields.get(name)
         result[name] = value.strip()[:limit] if isinstance(value, str) and value.strip() else fallback[name]
     result["category"] = fields.get("category") if fields.get("category") in REPORT_CATEGORIES else fallback["category"]
+    named = category_of(result["title"])
+    if named:
+        result["category"] = named
     result["status"] = fields.get("status") if fields.get("status") in {"Lost", "Found"} else fallback["status"]
     return result
 
@@ -1885,8 +1899,8 @@ VOICE_PROMPT = (
     '"when": "today", "yesterday" or "week"}. Do not invent anything they did not say.'
 )
 VOICE_MAX_BYTES = 2 * 1024 * 1024
-# Gemini gets one quick try at a clip; Whisper is the backup.
-AUDIO_TIMEOUT = 12
+# Gemini gets one try at a clip, while Whisper works on it alongside.
+AUDIO_TIMEOUT = 15
 GEMINI_AUDIO_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 
@@ -1934,6 +1948,14 @@ def hear_with_gemini(audio):
 
 WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-large-v3")
+# Whisper copies the spelling and alphabet of this text: campus names, item
+# words and brands, Hindi in Devanagari (it otherwise often writes Hindi in
+# Urdu script) and Kannada in Kannada script.
+WHISPER_HINT = (
+    "Canteen, Main Block, library, Mech Parking, workshops, P1, P2, ATM. Casio calculator, wallet, ID card. "
+    "मेरा पर्स कैंटीन में खो गया। "
+    "ನನಗೆ ಕ್ಯಾಂಟೀನ್ ಹತ್ರ ಪರ್ಸ್ ಸಿಕ್ಕಿದೆ."
+)
 
 
 def transcribe_with_whisper(audio):
@@ -1947,7 +1969,8 @@ def transcribe_with_whisper(audio):
         return None
     boundary = f"classfind{token_urlsafe(8)}"
     parts = []
-    for name, value in (("model", WHISPER_MODEL), ("response_format", "json"), ("temperature", "0")):
+    fields = (("model", WHISPER_MODEL), ("response_format", "json"), ("temperature", "0"), ("prompt", WHISPER_HINT))
+    for name, value in fields:
         parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
     parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="clip.wav"\r\n'
                  f"Content-Type: audio/wav\r\n\r\n".encode() + audio + b"\r\n")
@@ -2034,6 +2057,25 @@ def search_from(heard_text, item, places_said):
     return {"q": item.strip()[:80], "place": place}
 
 
+_voice_pool = ThreadPoolExecutor(max_workers=4)
+
+
+def hear_both(audio):
+    """Gemini's reading of the clip and Whisper's transcript, asked at the same time.
+
+    Whisper is only waited for when Gemini has nothing, so a quick Gemini
+    answer is never held up, and a slow or busy Gemini costs no extra wait.
+    """
+    whisper_job = _voice_pool.submit(transcribe_with_whisper, audio)
+    heard = hear_with_gemini(audio)
+    if heard is not None:
+        return heard, None
+    try:
+        return None, whisper_job.result(timeout=MODEL_TIMEOUT)
+    except Exception:  # noqa: BLE001 - a failed backup leaves the browser's captions
+        return None, None
+
+
 @app.post("/api/voice")
 def voice():
     """One spoken clip, read for Retrace, search or a report.
@@ -2051,8 +2093,7 @@ def voice():
         return {"error": "That was too long. Keep it under half a minute."}, 413
     captions = request.form.get("transcript", "").strip()[:600]
     is_wav = data[:4] == b"RIFF"
-    heard = hear_with_gemini(data) if is_wav else None
-    whisper = transcribe_with_whisper(data) if heard is None and is_wav else None
+    heard, whisper = hear_both(data) if is_wav else (None, None)
     if whisper:
         captions = whisper
     if heard is None and len(captions) < 3:

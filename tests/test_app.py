@@ -971,6 +971,34 @@ class ClassFindTestCase(unittest.TestCase):
         self.addCleanup(os.environ.pop, "AI_ORDER", None)
         self.assertIn("generativelanguage", app_module.llm_providers()[0][0])
 
+    def test_the_item_decides_an_obvious_category(self):
+        fields = clean_parsed_report({"title": "Black purse", "description": "A black purse.", "category": "Accessories",
+                                      "location": "canteen", "status": "Found"}, "black purse")
+        self.assertEqual(fields["category"], "Wallet & ID")
+        fields = clean_parsed_report({"title": "Steel thing", "category": "Accessories", "status": "Found"}, "x")
+        self.assertEqual(fields["category"], "Accessories")
+
+    def test_whisper_gets_the_campus_vocabulary(self):
+        os.environ["GROQ_API_KEY"] = "groq-key"
+        self.addCleanup(os.environ.pop, "GROQ_API_KEY", None)
+        body = {}
+
+        def fake(request_, timeout):
+            body["data"] = request_.data
+            reply = mock.MagicMock()
+            reply.__enter__.return_value.read.return_value = b'{"text": "ok"}'
+            return reply
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            app_module.transcribe_with_whisper(b"RIFFdata")
+        self.assertIn(b'name="prompt"', body["data"])
+        self.assertIn("कैंटीन".encode(), body["data"])
+        self.assertIn("Casio".encode(), body["data"])
+
+    def test_a_misheard_kannada_canteen_still_counts(self):
+        import campus
+        self.assertEqual(campus.resolve_place("ನನಗೆ ಕೆಂಟಿನ್ ಒಂದು ಪರ್ಸ್ ಸಿಕಿಡೆ")["candidates"], ["canteen", "puff-shop", "nandini"])
+
     def test_hinglish_and_kanglish_without_a_model(self):
         found = parse_report_rules("Mujhe computer lab Mein Ek key Mili Hai")
         self.assertEqual((found["title"], found["status"], found["category"]), ("Key", "Found", "Keys"))
