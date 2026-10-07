@@ -13,6 +13,7 @@ from io import BytesIO
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret"
 
+import app as app_module
 from app import (
     parse_report_with_model,
     Tag,
@@ -859,6 +860,50 @@ class ClassFindTestCase(unittest.TestCase):
         with mock.patch("app.BUSY_RETRY_WAITS", (0, 0)), mock.patch("urllib.request.urlopen", side_effect=fake):
             self.assertEqual(parse_report_with_model("lost my red cap")["title"], "Cap")
         self.assertIn("groq", urls[-1])
+
+    def test_a_retired_model_is_replaced_from_the_providers_list(self):
+        os.environ["GROQ_API_KEY"] = "groq-key"
+        self.addCleanup(os.environ.pop, "GROQ_API_KEY", None)
+        self.addCleanup(app_module._found_models.clear)
+        asked = []
+        answer = {"title": "Cap", "description": "A red cap.", "category": "Clothing", "location": "", "status": "Lost"}
+
+        def fake(request_, timeout):
+            if request_.full_url.endswith("/models"):
+                listing = {"data": [{"id": "whisper-large-v3"}, {"id": "openai/gpt-oss-120b"}, {"id": "llama-3.1-8b-instant"}]}
+                reply = mock.MagicMock()
+                reply.__enter__.return_value.read.return_value = json.dumps(listing).encode()
+                return reply
+            model = json.loads(request_.data)["model"]
+            asked.append(model)
+            if model == "llama-3.3-70b-versatile":
+                raise urllib.error.HTTPError(request_.full_url, 404, "Not found", {}, BytesIO(b"model_not_found"))
+            return self.model_reply(answer)
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            self.assertEqual(parse_report_with_model("lost my red cap")["title"], "Cap")
+            parse_report_with_model("lost my red cap")
+        self.assertEqual(asked, ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "openai/gpt-oss-120b"])
+
+    def test_the_ai_check_names_each_provider(self):
+        self.register_admin()
+        os.environ["GEMINI_API_KEY"] = "gemini-key"
+        os.environ["GROQ_API_KEY"] = "groq-key"
+        self.addCleanup(os.environ.pop, "GEMINI_API_KEY", None)
+        self.addCleanup(os.environ.pop, "GROQ_API_KEY", None)
+
+        def fake(request_, timeout):
+            if "groq" in request_.full_url:
+                raise urllib.error.HTTPError(request_.full_url, 401, "No", {}, BytesIO(b"bad groq key"))
+            raise urllib.error.HTTPError(request_.full_url, 403, "No", {}, BytesIO(b"bad gemini key"))
+
+        with mock.patch("app.BUSY_RETRY_WAITS", (0, 0)), mock.patch("urllib.request.urlopen", side_effect=fake):
+            page = self.post("/admin/ai-check", follow_redirects=True).data.decode()
+        self.assertIn("Text via GEMINI_API_KEY", page)
+        self.assertIn("Text via GROQ_API_KEY", page)
+        gemini_line = page.split("Text via GEMINI_API_KEY", 1)[1].split("Text via GROQ_API_KEY", 1)[0]
+        self.assertIn("bad gemini key", gemini_line)
+        self.assertNotIn("bad groq key", gemini_line)
 
     def test_hinglish_and_kanglish_without_a_model(self):
         found = parse_report_rules("Mujhe computer lab Mein Ek key Mili Hai")

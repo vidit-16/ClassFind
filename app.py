@@ -1652,9 +1652,36 @@ def post_model(url, payload, headers, timeout, optional=()):
 LLM_PROVIDERS = (
     ("GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
      GEMINI_MODEL),
-    ("CEREBRAS_API_KEY", "https://api.cerebras.ai/v1/chat/completions", "llama-3.3-70b"),
-    ("GROQ_API_KEY", "https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile"),
+    ("CEREBRAS_API_KEY", "https://api.cerebras.ai/v1/chat/completions",
+     os.getenv("CEREBRAS_MODEL", "llama-3.3-70b")),
+    ("GROQ_API_KEY", "https://api.groq.com/openai/v1/chat/completions",
+     os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")),
 )
+# When a provider says the model does not exist, one of these, in this order,
+# is picked from the provider's own list of models.
+MODEL_PREFERENCES = ("gemini", "gpt-oss-120b", "llama-4-maverick", "llama-4", "70b", "gpt-oss", "qwen", "llama")
+NOT_CHAT_MODELS = ("whisper", "tts", "guard", "embed", "audio", "playai", "distil", "vision", "image", "orpheus")
+# A model found that way, per provider URL, for the life of the process.
+_found_models = {}
+
+
+def discover_model(url, key):
+    """A chat model the provider offers now, from its /models list, or None."""
+    listing = urllib.request.Request(
+        url.replace("/chat/completions", "/models"),
+        headers={"Authorization": f"Bearer {key}", "User-Agent": "ClassFind/2.0"},
+    )
+    try:
+        with urllib.request.urlopen(listing, timeout=MODEL_TIMEOUT) as response:
+            ids = [entry.get("id", "") for entry in json.loads(response.read()).get("data", [])]
+    except (urllib.error.URLError, TimeoutError, ValueError, AttributeError):
+        return None
+    ids = [i.removeprefix("models/") for i in ids if i and not any(word in i.lower() for word in NOT_CHAT_MODELS)]
+    for preference in MODEL_PREFERENCES:
+        for model_id in ids:
+            if preference in model_id.lower():
+                return model_id
+    return ids[0] if ids else None
 
 
 MODEL_TIMEOUT = 15
@@ -1692,6 +1719,7 @@ def parse_report_with_model(text, prompt=None):
 
 def ask_provider(provider, text, prompt):
     url, key, model = provider
+    model = _found_models.get(url, model)
     payload = {
         "model": model,
         "temperature": 0,
@@ -1703,7 +1731,16 @@ def ask_provider(provider, text, prompt):
     # Some providers refuse urllib's default user agent.
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json", "User-Agent": "ClassFind/2.0"}
     try:
-        reply = post_model(url, payload, headers, MODEL_TIMEOUT, optional=("reasoning_effort",))
+        try:
+            reply = post_model(url, payload, headers, MODEL_TIMEOUT, optional=("reasoning_effort",))
+        except urllib.error.HTTPError as exc:
+            # The model was retired: use one the provider lists now, and remember it.
+            replacement = discover_model(url, key) if exc.code == 404 else None
+            if not replacement or replacement == model:
+                raise
+            app.logger.warning("Model %s is gone at %s; using %s instead.", model, url, replacement)
+            _found_models[url] = payload["model"] = replacement
+            reply = post_model(url, payload, headers, MODEL_TIMEOUT, optional=("reasoning_effort",))
         content = reply["choices"][0]["message"]["content"].strip()
         # Tolerate a reply wrapped in a ```json fence.
         content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content)
@@ -1870,17 +1907,23 @@ def silent_wav(seconds=0.5, rate=16000):
 @admin_required
 def ai_check():
     """Try the text model and Gemini audio once each and say what happened, without showing any key."""
-    provider = llm_provider()
-    if not provider:
+    providers = llm_providers()
+    if not providers:
         flash("AI check: no model key is set (GEMINI_API_KEY, CEREBRAS_API_KEY or GROQ_API_KEY).", "error")
         return redirect(url_for("admin_dashboard"))
-    key_name = next(name for name, url, _ in LLM_PROVIDERS if url == provider[0])
-    LAST_MODEL_ERROR.update(text="", audio="")
-    started = time.monotonic()
-    text_ok = parse_report_with_model("Found a black notebook in the library") is not None
-    text_time = time.monotonic() - started
-    parts = [f"Text via {key_name} ({provider[2]}): "
-             + (f"working, {text_time:.1f}s." if text_ok else f"failed. {LAST_MODEL_ERROR['text']}")]
+    parts = []
+    text_ok = False
+    # Each provider on its own, so one's error is never shown under another's name.
+    for provider in providers:
+        key_name = next(name for name, url, _ in LLM_PROVIDERS if url == provider[0])
+        LAST_MODEL_ERROR["text"] = ""
+        started = time.monotonic()
+        ok = ask_provider(provider, "Found a black notebook in the library", REPORT_PROMPT) is not None
+        model = _found_models.get(provider[0], provider[2])
+        parts.append(f"Text via {key_name} ({model}): "
+                     + (f"working, {time.monotonic() - started:.1f}s." if ok else f"failed. {LAST_MODEL_ERROR['text']}"))
+        text_ok = text_ok or ok
+    LAST_MODEL_ERROR["audio"] = ""
     if os.getenv("GEMINI_API_KEY", "").strip():
         started = time.monotonic()
         audio_ok = hear_with_gemini(silent_wav()) is not None
