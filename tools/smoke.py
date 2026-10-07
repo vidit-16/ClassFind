@@ -51,7 +51,8 @@ def main(base):
     page = body.decode("utf-8", "replace")
     check("home page loads", status == 200, f"{status}, {took:.2f}s")
     check("home page draws the campus map", 'data-place="main-block"' in page and "map.js" in page)
-    check("security policy blocks inline scripts", "script-src 'self'" in (headers.get("Content-Security-Policy") or ""))
+    policy = headers.get("Content-Security-Policy") or ""
+    check("security policy blocks inline scripts", "script-src 'self'" in policy)
     check("microphone allowed for this site only", "microphone=(self)" in (headers.get("Permissions-Policy") or ""))
     if base.startswith("https://"):
         check("HSTS is sent over HTTPS", bool(headers.get("Strict-Transport-Security")))
@@ -76,7 +77,8 @@ def main(base):
 
     check("\"mechanical parking\" is Mech Parking", place("mechanical parking").get("place") == "mech-parking")
     check("\"CS lab\" is the Main Block", place("CS lab, 3rd floor").get("place") == "main-block")
-    check("\"canteen\" asks which of three", place("near the canteen").get("candidates") == ["canteen", "puff-shop", "nandini"])
+    canteens = place("near the canteen").get("candidates")
+    check("\"canteen\" asks which of three", canteens == ["canteen", "puff-shop", "nandini"])
     check("\"Canara ATM\" is the ATM", place("Canara ATM").get("place") == "atm")
 
     since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
@@ -88,7 +90,8 @@ def main(base):
         status, _, _, _ = fetch(base + path)
         check(f"{path} loads", status == 200, f"{status}")
     status, headers, _, _ = fetch(base + "/report", follow=False)
-    check("reporting needs a sign-in", status in (301, 302, 303) and "login" in (headers.get("Location") or ""), f"{status}")
+    to_login = status in (301, 302, 303) and "login" in (headers.get("Location") or "")
+    check("reporting needs a sign-in", to_login, f"{status}")
     status, _, _, _ = fetch(base + "/admin", follow=False)
     check("admin is not public", status in (301, 302, 303, 403), f"{status}")
 

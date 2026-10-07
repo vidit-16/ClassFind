@@ -205,7 +205,7 @@ to see the admin pages. The microphone needs HTTPS, except on `localhost`.
 ## Deployment
 
 [docs/AWS_SETUP_V2.md](docs/AWS_SETUP_V2.md) walks through SES, Rekognition, the
-thumbnail Lambda and the CloudWatch alarm. [AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md)
+thumbnail Lambda and the CloudWatch alarm. [docs/AWS_DEPLOYMENT.md](docs/AWS_DEPLOYMENT.md)
 covers the S3 bucket and its policy, the instance role's permissions, RDS and
 the Elastic Beanstalk environment. Set the variables above, deploy the source
 bundle (`git archive --format=zip -o classfind.zip HEAD`), then run the smoke
@@ -226,7 +226,7 @@ Retrace, voice in each mode, every model fallback (busy, retired, timed out),
 and a check that the fast matching path returns exactly what a plain double
 loop returns.
 
-CI runs the suite twice on every pull request: on SQLite, and on PostgreSQL 16,
+CI lints the code with ruff and runs the suite twice on every pull request: on SQLite, and on PostgreSQL 16,
 the database the live site uses.
 
 Two more checks live in `tools/`:
@@ -252,6 +252,9 @@ ClassFind/
 ├── app.py                  config, models, routes, matching, Retrace, voice
 ├── campus.py               place names → places on the map
 ├── application.py          WSGI entry point for Elastic Beanstalk
+├── Procfile                Gunicorn command
+├── requirements.txt        Python dependencies
+├── pyproject.toml          lint settings (ruff)
 ├── templates/              Jinja templates
 ├── static/                 style.css, app.js, map.js (map and Retrace),
 │                           picker.js (map on the report form), voice.js,
@@ -260,7 +263,10 @@ ClassFind/
 ├── tools/                  build_campus.py, smoke.py, mutate.py
 ├── tests/                  test_app.py, test_campus.py, test_quality.py,
 │                           test_thumbnail_lambda.py
-├── docs/                   AWS setup, campus map image, screenshots
+├── docs/                   AWS setup and deployment guides, campus map, screenshots
+├── aws/                    S3 bucket policy
+├── .platform/              nginx settings and the HTTPS certificate hooks
+├── .ebextensions/          Elastic Beanstalk port settings for HTTPS
 └── .github/workflows/      CI on SQLite and PostgreSQL
 ```
 

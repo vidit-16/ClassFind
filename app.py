@@ -1511,10 +1511,11 @@ def reject_claim(claim_id):
 # Words that mark a Hinglish or Kanglish sentence and carry no item details.
 MIXED_WORDS = {
     "mujhe", "mera", "meri", "mere", "maine", "humne", "ek", "mein", "me", "hai", "tha", "thi", "ho",
-    "mil", "mila", "mili", "mile", "gaya", "gayi", "gya", "gyi", "hogaya", "hogya", "raha", "rahi", "diya", "liya", "kho", "gum", "ko", "ka", "ki", "ke", "se", "par", "pe", "aaj",
+    "mil", "mila", "mili", "mile", "gaya", "gayi", "gya", "gyi", "hogaya", "hogya", "raha", "rahi", "diya",
+    "liya", "kho", "gum", "ko", "ka", "ki", "ke", "se", "par", "pe", "aaj",
     "kal", "yeh", "ye", "woh", "wo", "nanna", "nange", "nanu", "ondu", "alli", "sikkitu", "sikkide",
     "hoyitu", "kaledu", "kalkonde", "ivattu", "ninne", "hatra", "hathra", "andar", "bahar", "paas",
-    "nanagai", "nannagai", "nanngai", "nanage", "nangai", "nanna", "undu", "sikkida", "sikkidu", "sikkithu", "aytu",
+    "nanagai", "nannagai", "nanngai", "nanage", "nangai", "undu", "sikkida", "sikkidu", "sikkithu", "aytu",
     # The same words in Devanagari and Kannada script.
     "मुझे", "मेरा", "मेरी", "मेरे", "मैंने", "एक", "में", "है", "था", "थी", "मिल", "मिला", "मिली", "मिले",
     "गया", "गयी", "गई", "खो", "गुम", "को", "का", "की", "के", "से", "पर", "आज", "कल", "यह", "वह", "पास",
@@ -1631,7 +1632,8 @@ def parse_report_rules(text):
     preposition become the location.
     """
     lowered = text.lower()
-    found_words = r"\b(found|picked up|someone left|left behind|mila|mili|mile|mil gaya|mil gayi|milgaya|sikkitu|sikkide|sikkid[ae])\b"
+    found_words = (r"\b(found|picked up|someone left|left behind|mila|mili|mile|mil gaya|mil gayi|milgaya"
+                   r"|sikkitu|sikkide|sikkid[ae])\b")
     status = "Found" if re.search(found_words, lowered) else "Lost"
     if any(w in text for w in FOUND_SCRIPT_WORDS) and not any(w in text for w in LOST_SCRIPT_WORDS):
         status = "Found"
@@ -2089,15 +2091,16 @@ def ai_check():
         started = time.monotonic()
         ok = ask_provider(provider, "Found a black notebook in the library", REPORT_PROMPT) is not None
         model = _found_models.get(provider[0], provider[2])
-        parts.append(f"Text via {key_name} ({model}): "
-                     + (f"working, {time.monotonic() - started:.1f}s." if ok else f"failed. {LAST_MODEL_ERROR['text']}"))
+        result = f"working, {time.monotonic() - started:.1f}s." if ok else f"failed. {LAST_MODEL_ERROR['text']}"
+        parts.append(f"Text via {key_name} ({model}): {result}")
         text_ok = text_ok or ok
     LAST_MODEL_ERROR["audio"] = ""
     if os.getenv("GEMINI_API_KEY", "").strip():
         started = time.monotonic()
         audio_ok = hear_with_gemini(silent_wav()) is not None
-        parts.append("Voice via Gemini: "
-                     + (f"working, {time.monotonic() - started:.1f}s." if audio_ok else f"failed. {LAST_MODEL_ERROR['audio']}"))
+        result = (f"working, {time.monotonic() - started:.1f}s." if audio_ok
+                  else f"failed. {LAST_MODEL_ERROR['audio']}")
+        parts.append(f"Voice via Gemini: {result}")
     else:
         parts.append("Voice via Gemini: GEMINI_API_KEY is not set.")
     if os.getenv("GROQ_API_KEY", "").strip():
@@ -2656,7 +2659,8 @@ def build_matches():
     lost_prepared = prepared(lost_items)
     pairs = []
 
-    for found, found_text, found_location, found_place, found_title, found_category, found_labels in prepared(found_items):
+    for (found, found_text, found_location, found_place, found_title,
+         found_category, found_labels) in prepared(found_items):
         # One matcher per found title: its index of that string is built once
         # and reused against every lost title.
         matcher = SequenceMatcher(None, "", found_title)
