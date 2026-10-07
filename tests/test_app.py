@@ -793,6 +793,37 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertIn(b"API key not valid", page)
         self.assertNotIn(b"test-key", page)
 
+    def test_the_model_is_asked_again_without_settings_it_rejects(self):
+        os.environ["GEMINI_API_KEY"] = "test-key"
+        self.addCleanup(os.environ.pop, "GEMINI_API_KEY", None)
+        sent = []
+
+        class Reply:
+            def __init__(self, body):
+                self.body = body
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self):
+                return self.body
+
+        def fake(request_, timeout):
+            body = json.loads(request_.data)
+            sent.append(body)
+            if "reasoning_effort" in body:
+                raise urllib.error.HTTPError(request_.full_url, 400, "Bad", {}, BytesIO(b"unknown field"))
+            answer = {"title": "Key", "description": "A single key.", "category": "Keys",
+                      "location": "computer lab", "status": "Found"}
+            return Reply(json.dumps({"choices": [{"message": {"content": json.dumps(answer)}}]}).encode())
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            fields = parse_report_with_model("Mujhe computer lab mein ek key mili")
+        self.assertEqual(fields["title"], "Key")
+        self.assertEqual(len(sent), 2)
+        self.assertEqual(sent[0]["model"], "gemini-3.8-flash")
+        self.assertNotIn("reasoning_effort", sent[1])
+
     def test_hinglish_and_kanglish_without_a_model(self):
         found = parse_report_rules("Mujhe computer lab Mein Ek key Mili Hai")
         self.assertEqual((found["title"], found["status"], found["category"]), ("Key", "Found", "Keys"))
