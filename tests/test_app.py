@@ -901,9 +901,13 @@ class ClassFindTestCase(unittest.TestCase):
             page = self.post("/admin/ai-check", follow_redirects=True).data.decode()
         self.assertIn("Text via GEMINI_API_KEY", page)
         self.assertIn("Text via GROQ_API_KEY", page)
-        gemini_line = page.split("Text via GEMINI_API_KEY", 1)[1].split("Text via GROQ_API_KEY", 1)[0]
-        self.assertIn("bad gemini key", gemini_line)
-        self.assertNotIn("bad groq key", gemini_line)
+        lines = {name: page.split(f"Text via {name}", 1)[1].split("Text via", 1)[0].split("Voice via", 1)[0]
+                 for name in ("GEMINI_API_KEY", "GROQ_API_KEY")}
+        self.assertIn("bad gemini key", lines["GEMINI_API_KEY"])
+        self.assertNotIn("bad groq key", lines["GEMINI_API_KEY"])
+        self.assertIn("bad groq key", lines["GROQ_API_KEY"])
+        # Groq is asked first for text.
+        self.assertLess(page.index("Text via GROQ_API_KEY"), page.index("Text via GEMINI_API_KEY"))
 
     def test_voice_falls_back_to_whisper_when_gemini_is_busy(self):
         os.environ["GROQ_API_KEY"] = "groq-key"
@@ -914,6 +918,8 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertEqual((data["source"], data["q"], data["place"]), ("whisper", "red umbrella", "mech-parking"))
 
     def test_a_busy_provider_waits_its_turn(self):
+        os.environ["AI_ORDER"] = "gemini,groq"
+        self.addCleanup(os.environ.pop, "AI_ORDER", None)
         os.environ["GEMINI_API_KEY"] = "gemini-key"
         os.environ["GROQ_API_KEY"] = "groq-key"
         self.addCleanup(os.environ.pop, "GEMINI_API_KEY", None)
@@ -954,6 +960,16 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertIn("multipart/form-data", sent["type"])
         self.assertIn(b'name="model"', sent["body"])
         self.assertIn(b"RIFFdata", sent["body"])
+
+    def test_ai_order_decides_who_answers_text_first(self):
+        os.environ["GEMINI_API_KEY"] = "gemini-key"
+        os.environ["GROQ_API_KEY"] = "groq-key"
+        self.addCleanup(os.environ.pop, "GEMINI_API_KEY", None)
+        self.addCleanup(os.environ.pop, "GROQ_API_KEY", None)
+        self.assertIn("groq", app_module.llm_providers()[0][0])
+        os.environ["AI_ORDER"] = "gemini, groq"
+        self.addCleanup(os.environ.pop, "AI_ORDER", None)
+        self.assertIn("generativelanguage", app_module.llm_providers()[0][0])
 
     def test_hinglish_and_kanglish_without_a_model(self):
         found = parse_report_rules("Mujhe computer lab Mein Ek key Mili Hai")

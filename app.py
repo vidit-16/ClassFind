@@ -1707,10 +1707,24 @@ def cooling(name):
     return _cooling_until.get(name, 0) > time.monotonic()
 
 
+# Which text model is asked first. Groq answers typed English and Hinglish in
+# under a second; Gemini is slower but stronger in Kannada, so it comes next.
+# Voice is separate: Gemini hears the audio first, see hear_with_gemini().
+DEFAULT_AI_ORDER = "groq,cerebras,gemini"
+AI_NAMES = {"gemini": "GEMINI_API_KEY", "cerebras": "CEREBRAS_API_KEY", "groq": "GROQ_API_KEY"}
+
+
+def ordered_providers():
+    """LLM_PROVIDERS in the order AI_ORDER names, with any it leaves out at the end."""
+    names = [n.strip().lower() for n in os.getenv("AI_ORDER", DEFAULT_AI_ORDER).split(",")]
+    rank = {AI_NAMES[n]: i for i, n in enumerate(names) if n in AI_NAMES}
+    return sorted(LLM_PROVIDERS, key=lambda entry: rank.get(entry[0], len(rank)))
+
+
 def llm_providers():
     """(url, key, model) for every provider with a key set, in order. LLM_MODEL applies to the first."""
     found = []
-    for key_name, url, model in LLM_PROVIDERS:
+    for key_name, url, model in ordered_providers():
         key = os.getenv(key_name, "").strip()
         if key:
             found.append((url, key, (not found and os.getenv("LLM_MODEL", "").strip()) or model))
