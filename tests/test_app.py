@@ -23,7 +23,6 @@ from app import (
     clean_parsed_report,
     escalate_unclaimed_valuables,
     parse_report_rules,
-    CustodyEvent,
     add_desk_columns,
     add_place_columns,
     StaffInvite,
@@ -189,7 +188,8 @@ class ClassFindTestCase(unittest.TestCase):
         _rate_hits.clear()
         # Many students signing in at once, each once, is fine...
         for n in range(30):
-            self.assertNotEqual(self.post("/login", data={"email": f"s{n}@example.com", "password": "secret123"}).status_code, 429)
+            signed_in = self.post("/login", data={"email": f"s{n}@example.com", "password": "secret123"})
+            self.assertNotEqual(signed_in.status_code, 429)
             self.post("/logout")
         # ...but guessing one account's password is still stopped after 10 tries.
         for _ in range(10):
@@ -914,7 +914,8 @@ class ClassFindTestCase(unittest.TestCase):
 
     def test_voice_report_takes_gemini_fields_in_english(self):
         self.register()
-        heard = {"transcript": "Mujhe computer lab mein ek key mili hai", "english": "I found a key in the computer lab",
+        heard = {"transcript": "Mujhe computer lab mein ek key mili hai",
+                 "english": "I found a key in the computer lab",
                  "status": "Found", "title": "Key", "description": "A single key, found in the computer lab.",
                  "category": "Keys", "location": "computer lab", "places": ["computer lab"], "when": "today"}
         response, heard_mock = self.voice("report", heard)
@@ -1008,7 +1009,9 @@ class ClassFindTestCase(unittest.TestCase):
         self.addCleanup(os.environ.pop, "GEMINI_API_KEY", None)
         busy = urllib.error.HTTPError("https://x", 503, "Busy", {}, BytesIO(b"high demand"))
         answer = {"title": "Key", "description": "A key.", "category": "Keys", "location": "", "status": "Found"}
-        with mock.patch("app.BUSY_RETRY_WAITS", (0, 0)),                 mock.patch("urllib.request.urlopen", side_effect=[busy, busy, self.model_reply(answer)]) as calls:
+        replies = [busy, busy, self.model_reply(answer)]
+        with mock.patch("app.BUSY_RETRY_WAITS", (0, 0)), \
+                mock.patch("urllib.request.urlopen", side_effect=replies) as calls:
             self.assertEqual(parse_report_with_model("found a key")["title"], "Key")
         self.assertEqual(calls.call_count, 3)
 
@@ -1040,7 +1043,8 @@ class ClassFindTestCase(unittest.TestCase):
 
         def fake(request_, timeout):
             if request_.full_url.endswith("/models"):
-                listing = {"data": [{"id": "whisper-large-v3"}, {"id": "openai/gpt-oss-120b"}, {"id": "llama-3.1-8b-instant"}]}
+                listing = {"data": [{"id": "whisper-large-v3"}, {"id": "openai/gpt-oss-120b"},
+                                    {"id": "llama-3.1-8b-instant"}]}
                 reply = mock.MagicMock()
                 reply.__enter__.return_value.read.return_value = json.dumps(listing).encode()
                 return reply
@@ -1119,7 +1123,8 @@ class ClassFindTestCase(unittest.TestCase):
         sent = {}
 
         def fake(request_, timeout):
-            sent["url"], sent["body"], sent["type"] = request_.full_url, request_.data, request_.get_header("Content-type")
+            sent["url"], sent["body"] = request_.full_url, request_.data
+            sent["type"] = request_.get_header("Content-type")
             reply = mock.MagicMock()
             reply.__enter__.return_value.read.return_value = json.dumps({"text": "mujhe ek key mili"}).encode()
             return reply
@@ -1142,7 +1147,8 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertIn("generativelanguage", app_module.llm_providers()[0][0])
 
     def test_the_item_decides_an_obvious_category(self):
-        fields = clean_parsed_report({"title": "Black purse", "description": "A black purse.", "category": "Accessories",
+        fields = clean_parsed_report({"title": "Black purse", "description": "A black purse.",
+                                      "category": "Accessories",
                                       "location": "canteen", "status": "Found"}, "black purse")
         self.assertEqual(fields["category"], "Wallet & ID")
         fields = clean_parsed_report({"title": "Steel thing", "category": "Accessories", "status": "Found"}, "x")
@@ -1167,7 +1173,8 @@ class ClassFindTestCase(unittest.TestCase):
 
     def test_a_misheard_kannada_canteen_still_counts(self):
         import campus
-        self.assertEqual(campus.resolve_place("ನನಗೆ ಕೆಂಟಿನ್ ಒಂದು ಪರ್ಸ್ ಸಿಕಿಡೆ")["candidates"], ["canteen", "puff-shop", "nandini"])
+        heard = campus.resolve_place("ನನಗೆ ಕೆಂಟಿನ್ ಒಂದು ಪರ್ಸ್ ಸಿಕಿಡೆ")
+        self.assertEqual(heard["candidates"], ["canteen", "puff-shop", "nandini"])
 
     def test_romanised_kannada_from_whisper(self):
         fields = parse_report_rules("NANNGAI CANTEEN HATRA UNDU KAPPU PERS SIKKIDA")
@@ -1226,7 +1233,8 @@ class ClassFindTestCase(unittest.TestCase):
                 "status VARCHAR(20) NOT NULL, reporter_name VARCHAR(100) NOT NULL, contact VARCHAR(160) NOT NULL, "
                 "image_url VARCHAR(500), owner_id INTEGER, created_at TIMESTAMP NOT NULL)",
                 f"CREATE TABLE claim (id {key}, item_id INTEGER NOT NULL, claimant_id INTEGER NOT NULL, "
-                "message TEXT NOT NULL, status VARCHAR(20) NOT NULL, created_at TIMESTAMP NOT NULL, decided_at TIMESTAMP)",
+                "message TEXT NOT NULL, status VARCHAR(20) NOT NULL, created_at TIMESTAMP NOT NULL, "
+                "decided_at TIMESTAMP)",
                 "INSERT INTO item (title, description, category, location, status, reporter_name, contact, created_at) "
                 "VALUES ('Old bottle', 'Steel bottle', 'Other', 'Gym', 'Found', 'X', 'x@example.com', '2026-09-01')",
             ):
@@ -1489,7 +1497,7 @@ class ClassFindTestCase(unittest.TestCase):
         with app.app_context():
             lost = Item.query.filter_by(title="Steel thing").one()
             self.assertEqual(lost.image_labels, "Bottle,Shaker")
-            reasons = [r for l, f, s, r in build_matches() if l.title == "Steel thing"][0]
+            reasons = [r for lost, _, _, r in build_matches() if lost.title == "Steel thing"][0]
         self.assertIn("photos show: bottle, shaker", reasons)
         page = self.client.get(f"/item/{lost.id}").data
         self.assertIn(b"In the photo", page)

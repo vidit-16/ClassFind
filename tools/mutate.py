@@ -56,7 +56,8 @@ def mutation_sites(tree, names):
                               f"{'Or' if isinstance(node.op, ast.And) else 'And'}", node, ("boolop",)))
             elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
                 sites.append((f"{path[0]}:{path[1]} drop not", node, ("not",)))
-            elif isinstance(node, ast.Constant) and type(node.value) in (int, float) and not isinstance(node.value, bool):
+            elif (isinstance(node, ast.Constant) and type(node.value) in (int, float)
+                  and not isinstance(node.value, bool)):
                 sites.append((f"{path[0]}:{path[1]} {node.value!r} -> {node.value + 1!r}", node, ("number",)))
     return sites
 

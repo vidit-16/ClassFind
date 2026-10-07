@@ -66,7 +66,8 @@ PLACES = [
      ["bit main gate", "bit gate", "main gate", "front gate", "gate 15"]),
     ("law-physio", 16, "Visveswarapura College of Law and Kempegowda Institute of Physiotherapy",
      "Law / Physio", "block", (585, 1125, 715, 1210),
-     ["law college", "visveswarapura college of law", "physiotherapy", "physio", "kempegowda institute of physiotherapy"]),
+     ["law college", "visveswarapura college of law", "physiotherapy", "physio",
+      "kempegowda institute of physiotherapy"]),
     ("canteen", 17, "BIT Canteen", "Canteen", "bit", (735, 1125, 862, 1170),
      ["bit canteen", "main canteen", "college canteen"]),
     ("xerox-canteen", 18, "Xerox corner near the canteen", "Xerox", "small", (918, 1122, 945, 1158),
@@ -204,7 +205,7 @@ def on_segment(point, a, b, tolerance=0.5):
 
 def segments():
     for road_id, _, points, _ in ROADS:
-        for a, b in zip(points, points[1:]):
+        for a, b in zip(points, points[1:], strict=False):
             yield road_id, a, b
 
 
@@ -224,14 +225,14 @@ def crossing(a, b, c, d):
 def inside(point, poly):
     x, y = point
     hit = False
-    for (x0, y0), (x1, y1) in zip(poly, poly[1:] + poly[:1]):
+    for (x0, y0), (x1, y1) in zip(poly, poly[1:] + poly[:1], strict=True):
         if (y0 > y) != (y1 > y) and x < x0 + (y - y0) * (x1 - x0) / (y1 - y0):
             hit = not hit
     return hit
 
 
 def boundary_distance(point, poly):
-    return min(project(point, a, b)[1] for a, b in zip(poly, poly[1:] + poly[:1]))
+    return min(project(point, a, b)[1] for a, b in zip(poly, poly[1:] + poly[:1], strict=True))
 
 
 def doors():
@@ -284,9 +285,9 @@ def graph(door_points):
             nodes.append(pt)
         return index[pt]
 
-    for (road_id, a, b), points in cuts.items():
+    for (road_id, a, _), points in cuts.items():
         ordered = sorted(points, key=lambda pt: math.dist(a, pt))
-        for p, q in zip(ordered, ordered[1:]):
+        for p, q in zip(ordered, ordered[1:], strict=False):
             if p != q:
                 edges.append((node(p), node(q), round(math.dist(p, q), 1), road_id))
     # Some roads only meet through a building or a car park, e.g. the road from
