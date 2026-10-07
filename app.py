@@ -1603,6 +1603,10 @@ def parse_report_rules(text):
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
 
+BUSY_CODES = {429, 500, 502, 503, 504}
+BUSY_RETRY_WAITS = (1.0, 2.5)
+
+
 def post_model(url, payload, headers, timeout, optional=()):
     """POST JSON to a model and return the reply.
 
@@ -1611,9 +1615,16 @@ def post_model(url, payload, headers, timeout, optional=()):
     once more without them.
     """
     def send(body):
-        request_ = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers=headers)
-        with urllib.request.urlopen(request_, timeout=timeout) as response:
-            return json.loads(response.read())
+        # A busy model (429, 5xx) usually answers a moment later.
+        for wait in (*BUSY_RETRY_WAITS, None):
+            request_ = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers=headers)
+            try:
+                with urllib.request.urlopen(request_, timeout=timeout) as response:
+                    return json.loads(response.read())
+            except urllib.error.HTTPError as exc:
+                if wait is None or exc.code not in BUSY_CODES:
+                    raise
+                time.sleep(wait)
 
     try:
         return send(payload)
@@ -1638,22 +1649,36 @@ MODEL_TIMEOUT = 15
 LAST_MODEL_ERROR = {"text": "", "audio": ""}
 
 
-def llm_provider():
-    """(url, key, model) for the first provider with a key set, or None."""
+def llm_providers():
+    """(url, key, model) for every provider with a key set, in order. LLM_MODEL applies to the first."""
+    found = []
     for key_name, url, model in LLM_PROVIDERS:
         key = os.getenv(key_name, "").strip()
         if key:
-            return url, key, os.getenv("LLM_MODEL", "").strip() or model
-    return None
+            found.append((url, key, (not found and os.getenv("LLM_MODEL", "").strip()) or model))
+    return found
+
+
+def llm_provider():
+    """The first provider with a key set, or None."""
+    providers = llm_providers()
+    return providers[0] if providers else None
 
 
 def parse_report_with_model(text, prompt=None):
-    """Ask an LLM on Gemini, Cerebras or Groq to fill the form. Returns None without a key or on any failure."""
-    provider = llm_provider()
-    if not provider:
-        return None
+    """Ask Gemini, Cerebras or Groq to fill the form, moving to the next if one fails.
+
+    Returns None without a key or when every provider fails.
+    """
+    for provider in llm_providers():
+        fields = ask_provider(provider, text, prompt or REPORT_PROMPT)
+        if fields is not None:
+            return fields
+    return None
+
+
+def ask_provider(provider, text, prompt):
     url, key, model = provider
-    prompt = prompt or REPORT_PROMPT
     payload = {
         "model": model,
         "temperature": 0,

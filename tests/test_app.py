@@ -786,8 +786,10 @@ class ClassFindTestCase(unittest.TestCase):
         self.register_admin()
         os.environ["GEMINI_API_KEY"] = "test-key"
         self.addCleanup(os.environ.pop, "GEMINI_API_KEY", None)
-        error = urllib.error.HTTPError("https://x", 403, "Forbidden", {}, BytesIO(b'{"error": "API key not valid"}'))
-        with mock.patch("urllib.request.urlopen", side_effect=error):
+        def refuse(request_, timeout):
+            raise urllib.error.HTTPError("https://x", 403, "Forbidden", {}, BytesIO(b'{"error": "API key not valid"}'))
+
+        with mock.patch("urllib.request.urlopen", side_effect=refuse):
             page = self.post("/admin/ai-check", follow_redirects=True).data
         self.assertIn(b"HTTP 403", page)
         self.assertIn(b"API key not valid", page)
@@ -823,6 +825,40 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertEqual(len(sent), 2)
         self.assertEqual(sent[0]["model"], "gemini-3.8-flash")
         self.assertNotIn("reasoning_effort", sent[1])
+
+    def model_reply(self, answer):
+        body = json.dumps({"choices": [{"message": {"content": json.dumps(answer)}}]}).encode()
+        reply = mock.MagicMock()
+        reply.__enter__.return_value.read.return_value = body
+        return reply
+
+    def test_a_busy_model_is_tried_again(self):
+        os.environ["GEMINI_API_KEY"] = "test-key"
+        self.addCleanup(os.environ.pop, "GEMINI_API_KEY", None)
+        busy = urllib.error.HTTPError("https://x", 503, "Busy", {}, BytesIO(b"high demand"))
+        answer = {"title": "Key", "description": "A key.", "category": "Keys", "location": "", "status": "Found"}
+        with mock.patch("app.BUSY_RETRY_WAITS", (0, 0)),                 mock.patch("urllib.request.urlopen", side_effect=[busy, busy, self.model_reply(answer)]) as calls:
+            self.assertEqual(parse_report_with_model("found a key")["title"], "Key")
+        self.assertEqual(calls.call_count, 3)
+
+    def test_the_next_provider_answers_when_gemini_is_down(self):
+        os.environ["GEMINI_API_KEY"] = "test-key"
+        os.environ["GROQ_API_KEY"] = "other-key"
+        self.addCleanup(os.environ.pop, "GEMINI_API_KEY", None)
+        self.addCleanup(os.environ.pop, "GROQ_API_KEY", None)
+        down = urllib.error.HTTPError("https://x", 503, "Busy", {}, BytesIO(b"high demand"))
+        answer = {"title": "Cap", "description": "A red cap.", "category": "Clothing", "location": "", "status": "Lost"}
+        urls = []
+
+        def fake(request_, timeout):
+            urls.append(request_.full_url)
+            if "generativelanguage" in request_.full_url:
+                raise down
+            return self.model_reply(answer)
+
+        with mock.patch("app.BUSY_RETRY_WAITS", (0, 0)), mock.patch("urllib.request.urlopen", side_effect=fake):
+            self.assertEqual(parse_report_with_model("lost my red cap")["title"], "Cap")
+        self.assertIn("groq", urls[-1])
 
     def test_hinglish_and_kanglish_without_a_model(self):
         found = parse_report_rules("Mujhe computer lab Mein Ek key Mili Hai")
