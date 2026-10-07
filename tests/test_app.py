@@ -44,7 +44,17 @@ from app import (
 
 
 class ClassFindTestCase(unittest.TestCase):
+    # Settings that would reach real services or change which one is asked. A
+    # developer's own keys must never make a test call Groq or Gemini.
+    OUTSIDE_SETTINGS = ("GEMINI_API_KEY", "GROQ_API_KEY", "CEREBRAS_API_KEY", "LLM_MODEL", "AI_ORDER",
+                        "GEMINI_MODEL", "GROQ_MODEL", "CEREBRAS_MODEL", "GEMINI_AUDIO_MODEL", "WHISPER_MODEL",
+                        "SES_SENDER", "PHOTO_LABELS", "THUMBNAILS", "ADMIN_EMAIL", "STAFF_EMAILS")
+
     def setUp(self):
+        saved = {name: os.environ.pop(name) for name in self.OUTSIDE_SETTINGS if name in os.environ}
+        self.addCleanup(os.environ.update, saved)
+        app_module._cooling_until.clear()
+        app_module._found_models.clear()
         app.config.update(TESTING=True, WTF_CSRF_ENABLED=False, RATE_LIMITS_ENABLED=False)
         self.upload_dir = tempfile.mkdtemp()
         app.config["UPLOAD_FOLDER"] = self.upload_dir
