@@ -905,6 +905,56 @@ class ClassFindTestCase(unittest.TestCase):
         self.assertIn("bad gemini key", gemini_line)
         self.assertNotIn("bad groq key", gemini_line)
 
+    def test_voice_falls_back_to_whisper_when_gemini_is_busy(self):
+        os.environ["GROQ_API_KEY"] = "groq-key"
+        self.addCleanup(os.environ.pop, "GROQ_API_KEY", None)
+        with mock.patch("app.transcribe_with_whisper", return_value="lost my red umbrella in mech parking") as whisper:
+            data = self.voice("search", None, transcript="")[0].get_json()
+        whisper.assert_called_once()
+        self.assertEqual((data["source"], data["q"], data["place"]), ("whisper", "red umbrella", "mech-parking"))
+
+    def test_a_busy_provider_waits_its_turn(self):
+        os.environ["GEMINI_API_KEY"] = "gemini-key"
+        os.environ["GROQ_API_KEY"] = "groq-key"
+        self.addCleanup(os.environ.pop, "GEMINI_API_KEY", None)
+        self.addCleanup(os.environ.pop, "GROQ_API_KEY", None)
+        self.addCleanup(app_module._cooling_until.clear)
+        answer = {"title": "Cap", "description": "A red cap.", "category": "Clothing", "location": "", "status": "Lost"}
+        urls = []
+
+        def fake(request_, timeout):
+            urls.append(request_.full_url)
+            if "generativelanguage" in request_.full_url:
+                raise urllib.error.HTTPError(request_.full_url, 503, "Busy", {}, BytesIO(b"high demand"))
+            return self.model_reply(answer)
+
+        with mock.patch("app.BUSY_RETRY_WAITS", (0, 0)), mock.patch("urllib.request.urlopen", side_effect=fake):
+            parse_report_with_model("lost my red cap")
+            first = len(urls)
+            parse_report_with_model("lost my red cap")
+        # The first time Gemini is tried (three times) before Groq; the second time Groq goes first.
+        self.assertIn("generativelanguage", urls[0])
+        self.assertIn("groq", urls[first])
+        self.assertEqual(len(urls) - first, 1)
+
+    def test_whisper_sends_the_clip_as_a_form(self):
+        os.environ["GROQ_API_KEY"] = "groq-key"
+        self.addCleanup(os.environ.pop, "GROQ_API_KEY", None)
+        sent = {}
+
+        def fake(request_, timeout):
+            sent["url"], sent["body"], sent["type"] = request_.full_url, request_.data, request_.get_header("Content-type")
+            reply = mock.MagicMock()
+            reply.__enter__.return_value.read.return_value = json.dumps({"text": "mujhe ek key mili"}).encode()
+            return reply
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake):
+            self.assertEqual(app_module.transcribe_with_whisper(b"RIFFdata"), "mujhe ek key mili")
+        self.assertIn("audio/transcriptions", sent["url"])
+        self.assertIn("multipart/form-data", sent["type"])
+        self.assertIn(b'name="model"', sent["body"])
+        self.assertIn(b"RIFFdata", sent["body"])
+
     def test_hinglish_and_kanglish_without_a_model(self):
         found = parse_report_rules("Mujhe computer lab Mein Ek key Mili Hai")
         self.assertEqual((found["title"], found["status"], found["category"]), ("Key", "Found", "Keys"))
