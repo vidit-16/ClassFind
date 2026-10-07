@@ -667,8 +667,26 @@
     retraceOut.append(note);
   }
 
+  // The headline's second line follows the tab: searching or retracing.
+  const headline = document.querySelector(".headline-line");
+  function setHeadline(mode) {
+    if (!headline) return;
+    const text = headline.dataset[mode];
+    if (!text || headline.textContent === text) return;
+    if (CALM.matches) {
+      headline.textContent = text;
+      return;
+    }
+    headline.classList.add("swapping");
+    window.setTimeout(() => {
+      headline.textContent = text;
+      headline.classList.remove("swapping");
+    }, 160);
+  }
+
   function setMode(mode) {
     retracing = mode === "retrace";
+    setHeadline(mode);
     document.querySelectorAll(".mode-tab").forEach((tab) => {
       const on = tab.dataset.mode === mode;
       tab.classList.toggle("active", on);
