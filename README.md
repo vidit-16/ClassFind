@@ -204,7 +204,7 @@ check below.
 .venv/Scripts/python.exe -m unittest discover -s tests -v
 ```
 
-108 tests, with no network or AWS account needed. Besides accounts, reporting,
+116 tests, with no network or AWS account needed. Besides accounts, reporting,
 the desk flow from drop-off to collection code, admin, CSRF, security headers
 and uploads, they cover place names (aliases, misspellings, Kannada and Hindi,
 places that are ambiguous on purpose), the path graph being fully connected,
@@ -224,7 +224,11 @@ Two more checks live in `tools/`:
 - **`tools/mutate.py`** is mutation testing for the code where a quiet bug would
   hurt most: place matching, Retrace, collection codes, escalation and placing
   reports. It makes one small change at a time (a comparison flipped, `and` for
-  `or`, a number nudged) and checks that the tests notice.
+  `or`, a number nudged) and checks that the tests notice. Its first run found a
+  real bug ("power bank" matched the bank in the Main Block) and ten untested
+  behaviours, all now covered. What survives now is harmless: timestamp
+  boundaries to the microsecond, rounding, and score weights that do not change
+  the order of results.
 
 ## Project structure
 

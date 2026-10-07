@@ -1159,6 +1159,82 @@ class ClassFindTestCase(unittest.TestCase):
             self.assertEqual(escalate_unclaimed_valuables(), 0)
             self.assertEqual(Item.query.filter_by(custody="office").count(), 0)
 
+    # The tests below cover what mutation testing (tools/mutate.py) showed no test noticed.
+
+    def test_a_valuable_with_an_approved_claim_stays_at_the_desk(self):
+        item_id = self.found_item("Grey phone", category="Electronics")
+        self.register("Owner", "owner@example.com")
+        self.claim(item_id, "IMEI ends in 4471 and the lock screen is a beach photo.")
+        self.logout()
+        self.register_staff()
+        self.post(f"/desk/item/{item_id}/received", follow_redirects=True)
+        with app.app_context():
+            claim_id = Claim.query.one().id
+        self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
+        with app.app_context():
+            for event in db.session.get(Item, item_id).events:
+                event.created_at = datetime.utcnow() - timedelta(hours=100)
+            db.session.commit()
+            # The owner is on the way with a code: the phone must not move to the office.
+            self.assertEqual(escalate_unclaimed_valuables(), 0)
+            self.assertEqual(db.session.get(Item, item_id).custody, "held")
+
+    def test_collecting_an_item_closes_the_other_claims_on_it(self):
+        item_id = self.found_item()
+        self.register("Owner", "owner@example.com")
+        self.claim(item_id)
+        self.logout()
+        self.register("Other", "other@example.com")
+        self.claim(item_id, "Mine too, it has a scratch on the lid and my initials.")
+        self.logout()
+        self.register("Third", "third@example.com")
+        self.report("Red cap", "Cotton", "Clothing", "Gym", "Found")
+        self.logout()
+        self.register_staff()
+        with app.app_context():
+            owner_claim = Claim.query.join(User, Claim.claimant_id == User.id).filter(
+                User.email == "owner@example.com").one().id
+            cap_id = Item.query.filter_by(title="Red cap").one().id
+        self.post(f"/desk/item/{item_id}/received", follow_redirects=True)
+        self.post(f"/claims/{owner_claim}/accept", follow_redirects=True)
+        self.post("/desk/handover", data={"code": self.code_for(owner_claim)}, follow_redirects=True)
+        with app.app_context():
+            statuses = {c.claimant.email: c.status for c in Claim.query.filter_by(item_id=item_id)}
+            self.assertEqual(statuses, {"owner@example.com": "Collected", "other@example.com": "Rejected"})
+            self.assertEqual(db.session.get(Item, cap_id).status, "Found")
+
+    def test_retrace_ranks_where_you_went_above_what_you_passed(self):
+        self.register()
+        self.found_at("Wallet A", "canteen counter", "canteen")
+        self.found_at("Wallet B", "outside the main block", "main-block", "outside")
+        since = (datetime.utcnow() - timedelta(hours=6)).isoformat() + "Z"
+        items = self.client.get("/api/retrace", query_string={
+            "stops": "canteen", "passed": "main-block", "since": since}).get_json()["items"]
+        self.assertEqual([i["title"] for i in items], ["Wallet A", "Wallet B"])
+        self.assertEqual(items[0]["why"], "at Canteen, where you went")
+        self.assertEqual(items[1]["why"], "outside Main Block, which you passed")
+
+    def test_retrace_counts_what_the_photo_shows(self):
+        self.register()
+        self.found_at("Grey item", "canteen", "canteen")
+        self.found_at("Other item", "canteen", "canteen")
+        with app.app_context():
+            Item.query.filter_by(title="Grey item").one().image_labels = "Bottle,Tumbler"
+            db.session.commit()
+        since = (datetime.utcnow() - timedelta(hours=6)).isoformat() + "Z"
+        items = self.client.get("/api/retrace", query_string={
+            "stops": "canteen", "since": since, "q": "bottle"}).get_json()["items"]
+        self.assertEqual(items[0]["title"], "Grey item")
+        self.assertGreater(items[0]["score"], items[1]["score"])
+
+    def test_a_path_place_picked_on_the_map_is_always_outside(self):
+        self.register()
+        self.post("/report", data={"title": "Keys", "description": "Bike keys", "category": "Keys",
+                                   "location": "on the way in", "status": "Found",
+                                   "place": "road-main", "place_side": "inside"})
+        with app.app_context():
+            self.assertEqual(Item.query.one().place_side, "outside")
+
     def test_dashboard_insights_count_what_happened(self):
         item_id = self.found_item("Grey phone", category="Electronics")
         self.register("Owner", "owner@example.com")

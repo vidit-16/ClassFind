@@ -41,6 +41,9 @@ class PlaceWordsTestCase(unittest.TestCase):
         self.assertEqual(self.place("workshps"), "workshops")
         self.assertEqual(self.place("kalakshtra"), "kalakshetra")
         self.assertEqual(self.place("internet of thngs"), "main-block")
+        # Five letters is long enough to match loosely, typed or as the place's own name.
+        self.assertEqual(self.place("garge"), "mech-parking")
+        self.assertEqual(campus.resolve_place("xeroox")["candidates"], ["xerox-mech", "xerox-canteen"])
 
     def test_a_loose_match_is_cut_out_of_the_search_exactly(self):
         self.assertEqual(campus.split_search("mesh parking umbrella"), (["mech-parking"], "umbrella"))
