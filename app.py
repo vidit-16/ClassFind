@@ -1598,11 +1598,36 @@ def parse_report_rules(text):
     }
 
 
+# Google retires Gemini models for new keys over time; GEMINI_MODEL (or
+# LLM_MODEL / GEMINI_AUDIO_MODEL) picks another without a code change.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+
+
+def post_model(url, payload, headers, timeout, optional=()):
+    """POST JSON to a model and return the reply.
+
+    `optional` names settings that only speed things up, like turning off
+    thinking. Newer models may reject them, so on a 400 the request is tried
+    once more without them.
+    """
+    def send(body):
+        request_ = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers=headers)
+        with urllib.request.urlopen(request_, timeout=timeout) as response:
+            return json.loads(response.read())
+
+    try:
+        return send(payload)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 400 or not any(name in payload for name in optional):
+            raise
+        return send({k: v for k, v in payload.items() if k not in optional})
+
+
 # OpenAI-compatible chat endpoints that can fill the report form. Whichever key
 # is set decides the provider; LLM_MODEL overrides the default model.
 LLM_PROVIDERS = (
     ("GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-     "gemini-2.5-flash"),
+     GEMINI_MODEL),
     ("CEREBRAS_API_KEY", "https://api.cerebras.ai/v1/chat/completions", "llama-3.3-70b"),
     ("GROQ_API_KEY", "https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile"),
 )
@@ -1637,16 +1662,10 @@ def parse_report_with_model(text, prompt=None):
     }
     if "generativelanguage" in url:
         payload["reasoning_effort"] = "none"
-    body = json.dumps(payload).encode()
-    request_ = urllib.request.Request(
-        url, data=body, method="POST",
-        # Some providers refuse urllib's default user agent.
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
-                 "User-Agent": "ClassFind/2.0"},
-    )
+    # Some providers refuse urllib's default user agent.
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json", "User-Agent": "ClassFind/2.0"}
     try:
-        with urllib.request.urlopen(request_, timeout=MODEL_TIMEOUT) as response:
-            reply = json.loads(response.read())
+        reply = post_model(url, payload, headers, MODEL_TIMEOUT, optional=("reasoning_effort",))
         content = reply["choices"][0]["message"]["content"].strip()
         # Tolerate a reply wrapped in a ```json fence.
         content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content)
@@ -1767,22 +1786,26 @@ def hear_with_gemini(audio):
     key = os.getenv("GEMINI_API_KEY", "").strip()
     if not key:
         return None
-    model = os.getenv("GEMINI_AUDIO_MODEL", "gemini-2.5-flash")
-    body = json.dumps({
-        "contents": [{"parts": [
-            {"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(audio).decode()}},
-            {"text": VOICE_PROMPT},
-        ]}],
+    model = os.getenv("GEMINI_AUDIO_MODEL", "").strip() or GEMINI_MODEL
+    contents = [{"parts": [
+        {"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(audio).decode()}},
+        {"text": VOICE_PROMPT},
+    ]}]
+    payload = {
+        "contents": contents,
         "generationConfig": {"temperature": 0, "responseMimeType": "application/json",
                              "thinkingConfig": {"thinkingBudget": 0}},
-    }).encode()
-    request_ = urllib.request.Request(
-        GEMINI_AUDIO_URL.format(model=model), data=body, method="POST",
-        headers={"x-goog-api-key": key, "Content-Type": "application/json", "User-Agent": "ClassFind/3.0"},
-    )
+    }
+    headers = {"x-goog-api-key": key, "Content-Type": "application/json", "User-Agent": "ClassFind/3.0"}
     try:
-        with urllib.request.urlopen(request_, timeout=25) as response:
-            reply = json.loads(response.read())
+        try:
+            reply = post_model(GEMINI_AUDIO_URL.format(model=model), payload, headers, 25)
+        except urllib.error.HTTPError as exc:
+            # A model that does not take a thinking budget: ask again without one.
+            if exc.code != 400:
+                raise
+            payload["generationConfig"].pop("thinkingConfig")
+            reply = post_model(GEMINI_AUDIO_URL.format(model=model), payload, headers, 25)
         content = reply["candidates"][0]["content"]["parts"][0]["text"].strip()
         content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content)
         heard = json.loads(content)

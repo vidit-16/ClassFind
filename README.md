@@ -127,7 +127,7 @@ the log, which means sessions end when you restart it.
 | `PHOTO_LABELS` | Label uploaded photos with Amazon Rekognition and use the labels in matching | off |
 | `THUMBNAILS` | Show the Lambda-made thumbnails on the home page | off |
 | `GEMINI_API_KEY`, `CEREBRAS_API_KEY` or `GROQ_API_KEY` | Lets an LLM on Gemini, Cerebras or Groq fill the report form from one sentence; keyword rules are used without either | unset |
-| `LLM_MODEL` | Model to ask | `gemini-2.5-flash` on Gemini, `llama-3.3-70b` on Cerebras, `llama-3.3-70b-versatile` on Groq |
+| `LLM_MODEL` | Model to ask | `gemini-3.8-flash` on Gemini, `llama-3.3-70b` on Cerebras, `llama-3.3-70b-versatile` on Groq |
 | `ESCALATE_AFTER_HOURS` | Hours a valuable stays at the desk before moving to the admin office | `72` |
 | `DATABASE_URL` | SQLite or PostgreSQL connection string | `sqlite:///classfind.db` |
 | `S3_BUCKET` | Bucket for uploaded images | unset, images go to local disk |
