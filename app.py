@@ -1620,7 +1620,7 @@ BUSY_CODES = {429, 500, 502, 503, 504}
 BUSY_RETRY_WAITS = (1.0, 2.5)
 
 
-def post_model(url, payload, headers, timeout, optional=()):
+def post_model(url, payload, headers, timeout, optional=(), retry_busy=True):
     """POST JSON to a model and return the reply.
 
     `optional` names settings that only speed things up, like turning off
@@ -1629,7 +1629,7 @@ def post_model(url, payload, headers, timeout, optional=()):
     """
     def send(body):
         # A busy model (429, 5xx) usually answers a moment later.
-        for wait in (*BUSY_RETRY_WAITS, None):
+        for wait in (*(BUSY_RETRY_WAITS if retry_busy else ()), None):
             request_ = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers=headers)
             try:
                 with urllib.request.urlopen(request_, timeout=timeout) as response:
@@ -1687,6 +1687,24 @@ def discover_model(url, key):
 MODEL_TIMEOUT = 15
 # The latest failure of each kind, shown on the admin AI check.
 LAST_MODEL_ERROR = {"text": "", "audio": ""}
+# A provider that was busy or timed out is skipped for this long, so every
+# request does not wait through its retries before reaching the next one.
+COOL_DOWN_SECONDS = 180
+_cooling_until = {}
+
+
+def is_busy_failure(exc):
+    return isinstance(exc, TimeoutError) or (isinstance(exc, urllib.error.HTTPError) and exc.code in BUSY_CODES) \
+        or (isinstance(exc, urllib.error.URLError) and isinstance(getattr(exc, "reason", None), TimeoutError))
+
+
+def cool_down(name, exc):
+    if is_busy_failure(exc):
+        _cooling_until[name] = time.monotonic() + COOL_DOWN_SECONDS
+
+
+def cooling(name):
+    return _cooling_until.get(name, 0) > time.monotonic()
 
 
 def llm_providers():
@@ -1710,7 +1728,9 @@ def parse_report_with_model(text, prompt=None):
 
     Returns None without a key or when every provider fails.
     """
-    for provider in llm_providers():
+    providers = llm_providers()
+    # Busy ones go last rather than first; they are still tried if nothing else answers.
+    for provider in sorted(providers, key=lambda p: cooling(p[0])):
         fields = ask_provider(provider, text, prompt or REPORT_PROMPT)
         if fields is not None:
             return fields
@@ -1746,6 +1766,7 @@ def ask_provider(provider, text, prompt):
         content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content)
         return json.loads(content)
     except (urllib.error.URLError, TimeoutError, KeyError, IndexError, ValueError) as exc:
+        cool_down(url, exc)
         LAST_MODEL_ERROR["text"] = model_error(exc)
         app.logger.warning("Report parsing by the model failed (%s); using the rules instead.",
                            LAST_MODEL_ERROR["text"])
@@ -1850,6 +1871,8 @@ VOICE_PROMPT = (
     '"when": "today", "yesterday" or "week"}. Do not invent anything they did not say.'
 )
 VOICE_MAX_BYTES = 2 * 1024 * 1024
+# Gemini gets one quick try at a clip; Whisper is the backup.
+AUDIO_TIMEOUT = 12
 GEMINI_AUDIO_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 
@@ -1860,7 +1883,7 @@ def hear_with_gemini(audio):
     request understand Kannada, Hindi, English and any mix of them.
     """
     key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not key:
+    if not key or cooling("gemini-audio"):
         return None
     model = os.getenv("GEMINI_AUDIO_MODEL", "").strip() or GEMINI_MODEL
     contents = [{"parts": [
@@ -1875,21 +1898,58 @@ def hear_with_gemini(audio):
     headers = {"x-goog-api-key": key, "Content-Type": "application/json", "User-Agent": "ClassFind/3.0"}
     try:
         try:
-            reply = post_model(GEMINI_AUDIO_URL.format(model=model), payload, headers, 25)
+            reply = post_model(GEMINI_AUDIO_URL.format(model=model), payload, headers, AUDIO_TIMEOUT,
+                               retry_busy=False)
         except urllib.error.HTTPError as exc:
             # A model that does not take a thinking budget: ask again without one.
             if exc.code != 400:
                 raise
             payload["generationConfig"].pop("thinkingConfig")
-            reply = post_model(GEMINI_AUDIO_URL.format(model=model), payload, headers, 25)
+            reply = post_model(GEMINI_AUDIO_URL.format(model=model), payload, headers, AUDIO_TIMEOUT,
+                               retry_busy=False)
         content = reply["candidates"][0]["content"]["parts"][0]["text"].strip()
         content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content)
         heard = json.loads(content)
         return heard if isinstance(heard, dict) else None
     except (urllib.error.URLError, TimeoutError, KeyError, IndexError, ValueError) as exc:
+        cool_down("gemini-audio", exc)
         LAST_MODEL_ERROR["audio"] = model_error(exc)
-        app.logger.warning("Gemini could not read the voice clip (%s); using the browser's text instead.",
-                           LAST_MODEL_ERROR["audio"])
+        app.logger.warning("Gemini could not read the voice clip (%s); trying Whisper.", LAST_MODEL_ERROR["audio"])
+        return None
+
+
+WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-large-v3")
+
+
+def transcribe_with_whisper(audio):
+    """Groq's Whisper turns the clip into text, in whatever language was spoken. None on failure.
+
+    The backup for voice when Gemini is busy: Whisper only writes down what
+    was said, and the text model then reads it like a typed sentence.
+    """
+    key = os.getenv("GROQ_API_KEY", "").strip()
+    if not key or not audio:
+        return None
+    boundary = f"classfind{token_urlsafe(8)}"
+    parts = []
+    for name, value in (("model", WHISPER_MODEL), ("response_format", "json"), ("temperature", "0")):
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
+    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="clip.wav"\r\n'
+                 f"Content-Type: audio/wav\r\n\r\n".encode() + audio + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+    request_ = urllib.request.Request(
+        WHISPER_URL, data=b"".join(parts), method="POST",
+        headers={"Authorization": f"Bearer {key}", "User-Agent": "ClassFind/3.0",
+                 "Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    try:
+        with urllib.request.urlopen(request_, timeout=MODEL_TIMEOUT) as response:
+            text = json.loads(response.read()).get("text", "")
+        return text.strip()[:600] or None
+    except (urllib.error.URLError, TimeoutError, ValueError, AttributeError) as exc:
+        LAST_MODEL_ERROR["whisper"] = model_error(exc)
+        app.logger.warning("Whisper could not transcribe the clip (%s).", LAST_MODEL_ERROR["whisper"])
         return None
 
 
@@ -1913,6 +1973,7 @@ def ai_check():
         return redirect(url_for("admin_dashboard"))
     parts = []
     text_ok = False
+    _cooling_until.clear()
     # Each provider on its own, so one's error is never shown under another's name.
     for provider in providers:
         key_name = next(name for name, url, _ in LLM_PROVIDERS if url == provider[0])
@@ -1930,7 +1991,15 @@ def ai_check():
         parts.append("Voice via Gemini: "
                      + (f"working, {time.monotonic() - started:.1f}s." if audio_ok else f"failed. {LAST_MODEL_ERROR['audio']}"))
     else:
-        parts.append("Voice via Gemini: GEMINI_API_KEY is not set, so voice uses the browser's captions.")
+        parts.append("Voice via Gemini: GEMINI_API_KEY is not set.")
+    if os.getenv("GROQ_API_KEY", "").strip():
+        LAST_MODEL_ERROR["whisper"] = ""
+        started = time.monotonic()
+        # Silence gives Whisper nothing to write, so an empty answer still means it is reachable.
+        transcribe_with_whisper(silent_wav(1.0))
+        error = LAST_MODEL_ERROR.get("whisper")
+        parts.append(f"Voice backup via Groq Whisper ({WHISPER_MODEL}): "
+                     + (f"failed. {error}" if error else f"working, {time.monotonic() - started:.1f}s."))
     flash("AI check: " + " ".join(parts), "success" if text_ok else "error")
     return redirect(url_for("admin_dashboard"))
 
@@ -1947,6 +2016,7 @@ def search_from(heard_text, item, places_said):
             break
     if not item:
         _, item = campus.split_search(heard_text)
+        item = " ".join(word for word in item.split() if word not in STOP_WORDS and word not in MIXED_WORDS)
     return {"q": item.strip()[:80], "place": place}
 
 
@@ -1966,7 +2036,11 @@ def voice():
     if len(data) > VOICE_MAX_BYTES:
         return {"error": "That was too long. Keep it under half a minute."}, 413
     captions = request.form.get("transcript", "").strip()[:600]
-    heard = hear_with_gemini(data) if data[:4] == b"RIFF" else None
+    is_wav = data[:4] == b"RIFF"
+    heard = hear_with_gemini(data) if is_wav else None
+    whisper = transcribe_with_whisper(data) if heard is None and is_wav else None
+    if whisper:
+        captions = whisper
     if heard is None and len(captions) < 3:
         return {"error": "Couldn't make that out. Try again, or type it."}, 422
 
@@ -1978,14 +2052,15 @@ def voice():
     english = text_of("english") or said
     places_said = [p for p in (heard.get("places") if heard and isinstance(heard.get("places"), list) else [])
                    if isinstance(p, str)]
-    result = {"heard": said, "source": "gemini" if heard else "browser"}
+    result = {"heard": said, "source": "gemini" if heard else ("whisper" if whisper else "browser")}
     if mode == "retrace":
         parsed = None
         if heard:
             parsed = {"item": text_of("title"), "places": places_said or [english],
                       "when": heard.get("when")}
+        source = result["source"]
         result.update(plan_retrace(english, parsed))
-        result["source"] = "gemini" if heard else result["source"]
+        result["source"] = source
     elif mode == "search":
         result.update(search_from(english, text_of("title"), places_said or [english]))
     else:
