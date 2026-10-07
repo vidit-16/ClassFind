@@ -1483,7 +1483,15 @@ MIXED_WORDS = {
     "mil", "mila", "mili", "mile", "gaya", "gayi", "gya", "gyi", "hogaya", "hogya", "raha", "rahi", "diya", "liya", "kho", "gum", "ko", "ka", "ki", "ke", "se", "par", "pe", "aaj",
     "kal", "yeh", "ye", "woh", "wo", "nanna", "nange", "nanu", "ondu", "alli", "sikkitu", "sikkide",
     "hoyitu", "kaledu", "kalkonde", "ivattu", "ninne", "hatra", "hathra", "andar", "bahar", "paas",
+    # The same words in Devanagari and Kannada script.
+    "मुझे", "मेरा", "मेरी", "मेरे", "मैंने", "एक", "में", "है", "था", "थी", "मिल", "मिला", "मिली", "मिले",
+    "गया", "गयी", "गई", "खो", "गुम", "को", "का", "की", "के", "से", "पर", "आज", "कल", "यह", "वह", "पास",
+    "ನನಗೆ", "ನನ್ನ", "ನಾನು", "ಒಂದು", "ಅಲ್ಲಿ", "ಸಿಕ್ಕಿತು", "ಸಿಕ್ಕಿದೆ", "ಕಳೆದು", "ಹೋಯಿತು", "ಕಳೆದುಕೊಂಡೆ",
+    "ಇವತ್ತು", "ನಿನ್ನೆ", "ಹತ್ತಿರ", "ಒಳಗೆ",
 }
+# Found and lost in Indian scripts, where a regex word boundary does not work.
+FOUND_SCRIPT_WORDS = ("मिल", "ಸಿಕ್ಕ")
+LOST_SCRIPT_WORDS = ("खो", "गुम", "ಕಳೆದು")
 
 
 def rules_description(title, status, location):
@@ -1507,14 +1515,17 @@ def model_error(exc):
 
 def parse_mixed_rules(text, status):
     """A Hinglish or Kanglish sentence without a model: drop the joining words and the places."""
-    words = [w for w in re.findall(r"[\w']+", text) if w.lower() not in MIXED_WORDS]
+    # Split on spaces: vowel signs in Indian scripts are not word characters to a regex.
+    words = [w.strip(".,!?;:'\"") for w in text.split()]
+    words = [w for w in words if w and w.lower() not in MIXED_WORDS]
     _, rest = campus.split_search(" ".join(words))
     title = " ".join(w for w in rest.split() if w not in STOP_WORDS)[:80].strip()
     first = campus.find_places(text)
     category = next((name for name, keys in CATEGORY_WORDS.items()
                      if any(re.search(rf"\b{re.escape(k)}\b", title.lower()) for k in keys)), "Other")
     title = title[:1].upper() + title[1:] if title else ""
-    location = first[0]["words"].title() if first else ""
+    # The words as written, so "computer science lab" keeps its "lab".
+    location = campus.normalise(text)[slice(*first[0]["span"])].title() if first else ""
     return {
         "title": title,
         "description": rules_description(title, status, location),
@@ -1549,9 +1560,9 @@ REPORT_PROMPT = (
     "Extract a campus lost-and-found report. " + LANGUAGES_NOTE +
     "Reply with JSON only: "
     '{"title": the item in one to four English words, e.g. "Key" or "Black water bottle", '
-    '"description": one or two English sentences describing the item for whoever might own it, using '
-    "only details the student gave (colour, brand, size, marks, what was with it); leave out the place "
-    'and phrases like "I found", '
+    '"description": one or two English sentences for whoever might own it: the item, any details the '
+    "student gave (colour, brand, size, marks, what was with it) and where it was found or lost, e.g. "
+    '"A black notebook found in the computer science lab." Not in the first person, '
     f'"category": one of {REPORT_CATEGORIES}, "location": the place on campus in English or "", '
     '"status": "Lost" or "Found"}. Do not invent details.'
 )
@@ -1567,7 +1578,9 @@ def parse_report_rules(text):
     lowered = text.lower()
     found_words = r"\b(found|picked up|someone left|left behind|mila|mili|mile|mil gaya|mil gayi|milgaya|sikkitu|sikkide|sikkid[ae])\b"
     status = "Found" if re.search(found_words, lowered) else "Lost"
-    if set(lowered.split()) & MIXED_WORDS and len(set(lowered.split()) & MIXED_WORDS) >= 2:
+    if any(w in text for w in FOUND_SCRIPT_WORDS) and not any(w in text for w in LOST_SCRIPT_WORDS):
+        status = "Found"
+    if len(set(lowered.split()) & MIXED_WORDS) >= 2:
         return parse_mixed_rules(text, status)
     category = "Other"
     for name, words in CATEGORY_WORDS.items():
@@ -1791,8 +1804,9 @@ VOICE_PROMPT = (
     '"english": the same in plain English, '
     '"status": "Lost" or "Found", '
     '"title": the item in one to four English words or "", '
-    '"description": one or two English sentences describing the item for whoever might own it, using only '
-    "details they gave (colour, brand, size, marks); no place and no \"I found\", "
+    '"description": one or two English sentences for whoever might own it: the item, any details they '
+    "gave (colour, brand, size, marks) and where it was found or lost, e.g. \"A black notebook found in the "
+    'computer science lab.\" Not in the first person, '
     f'"category": one of {REPORT_CATEGORIES}, '
     '"location": where the item was, in English, or "", '
     '"places": every campus place they mention, in English, in the order they went there, '
