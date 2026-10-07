@@ -63,34 +63,34 @@
 <polygon points="455,750 483,750 483,778 455,778" fill="#d2e6d9" stroke="#4f8a6b" stroke-width="2"/>
 <polygon points="262,734 290,734 290,762 262,762" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
 <polygon points="610,122 715,122 715,176 610,176" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
-<text x="590" y="94" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">KIMS A gate</text>
-<text x="355" y="240" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">KIMS OPD</text>
-<text x="622" y="265" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">KIMS Hospital</text>
-<text x="496" y="436" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">KIMS Parking</text>
-<text x="600" y="550" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Kalakshetra</text>
-<text x="151" y="462" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">VS gate</text>
-<text x="380" y="621" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Main Block</text>
-<text x="221" y="650" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">P1</text>
-<text x="630" y="658" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Mech Parking</text>
-<text x="806" y="533" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">Chem/Phy</text>
-<text x="935" y="504" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Mech Blocks</text>
-<text x="752" y="666" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">Society</text>
-<text x="744" y="738" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">Mech xerox</text>
-<text x="151" y="805" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">BIT Main Gate</text>
-<text x="320" y="872" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Law / Physio</text>
-<text x="468" y="852" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Canteen</text>
-<text x="621" y="845" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">Xerox</text>
-<text x="626" y="917" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">Puff shop</text>
-<text x="775" y="908" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Dental College</text>
-<text x="180" y="924" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">Nandini</text>
-<text x="175" y="1064" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">P2</text>
-<text x="342" y="1028" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">KIN / VCS</text>
-<text x="107" y="1072" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">VCS gate</text>
-<text x="179" y="1222" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">KIN gate</text>
-<text x="806" y="705" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">MBA</text>
-<text x="905" y="702" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Workshops</text>
-<text x="489" y="769" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">BIT Tree</text>
-<text x="296" y="753" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">ATM</text>
-<text x="662" y="154" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">KIMS Canteen</text>
+<text x="590" y="94" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">KIMS A gate</text>
+<text x="355" y="240" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">KIMS OPD</text>
+<text x="622" y="265" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">KIMS Hospital</text>
+<text x="496" y="436" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">KIMS Parking</text>
+<text x="600" y="550" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">Kalakshetra</text>
+<text x="128" y="522" font-size="11" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">VS gate</text>
+<text x="380" y="621" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">Main Block</text>
+<text x="190" y="652" font-size="11" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">P1</text>
+<text x="630" y="658" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">Mech Parking</text>
+<text x="780" y="458" font-size="11" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">Chem/Phy</text>
+<text x="935" y="504" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">Mech Blocks</text>
+<text x="730" y="637" font-size="11" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">Society</text>
+<text x="724" y="768" font-size="11" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">Mech xerox</text>
+<text x="128" y="745" font-size="11" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">BIT Main Gate</text>
+<text x="320" y="872" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">Law / Physio</text>
+<text x="468" y="852" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">Canteen</text>
+<text x="601" y="878" font-size="11" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">Xerox</text>
+<text x="605" y="950" font-size="11" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">Puff shop</text>
+<text x="775" y="908" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">Dental College</text>
+<text x="140" y="924" font-size="11" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="end">Nandini</text>
+<text x="175" y="1064" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">P2</text>
+<text x="342" y="1028" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">KIN / VCS</text>
+<text x="84" y="1012" font-size="11" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">VCS gate</text>
+<text x="179" y="1222" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">KIN gate</text>
+<text x="780" y="709" font-size="11" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">MBA</text>
+<text x="905" y="702" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">Workshops</text>
+<text x="489" y="769" font-size="11" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="start">BIT Tree</text>
+<text x="296" y="753" font-size="11" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="start">ATM</text>
+<text x="662" y="154" font-size="14" font-weight="700" fill="#24352b" stroke="#f4f6f1" stroke-width="3" paint-order="stroke" text-anchor="middle">KIMS Canteen</text>
 <circle cx="375" cy="720" r="9" fill="#e3a21f" stroke="#fff" stroke-width="3"/><text x="389" y="742" font-size="12" font-weight="700" fill="#8a5a12">Security desk</text>
 </svg>
