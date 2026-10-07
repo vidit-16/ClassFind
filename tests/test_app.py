@@ -10,7 +10,8 @@ from botocore.exceptions import ClientError
 from datetime import datetime, timedelta
 from io import BytesIO
 
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+# CI also runs these against PostgreSQL, the database the live site uses.
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite:///:memory:")
 os.environ["SECRET_KEY"] = "test-secret"
 
 import app as app_module
@@ -118,7 +119,8 @@ class ClassFindTestCase(unittest.TestCase):
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["database"], "ok")
-        self.assertEqual(response.get_json()["engine"], "sqlite")
+        with app.app_context():
+            self.assertEqual(response.get_json()["engine"], db.engine.dialect.name)
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
         self.assertEqual(response.headers["X-Frame-Options"], "DENY")
         self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
@@ -1047,16 +1049,18 @@ class ClassFindTestCase(unittest.TestCase):
         """A database from before the desk gets its columns, and found items count as held."""
         with app.app_context():
             db.drop_all()
+            # Both databases accept this; INTEGER PRIMARY KEY only numbers rows by itself in SQLite.
+            key = "INTEGER PRIMARY KEY" if db.engine.dialect.name == "sqlite" else "SERIAL PRIMARY KEY"
             for statement in (
-                'CREATE TABLE "user" (id INTEGER PRIMARY KEY, name VARCHAR(100) NOT NULL, '
+                f'CREATE TABLE "user" (id {key}, name VARCHAR(100) NOT NULL, '
                 "email VARCHAR(160) NOT NULL, password_hash VARCHAR(255) NOT NULL, "
-                "is_admin BOOLEAN NOT NULL, created_at DATETIME NOT NULL)",
-                "CREATE TABLE item (id INTEGER PRIMARY KEY, title VARCHAR(120) NOT NULL, "
+                "is_admin BOOLEAN NOT NULL, created_at TIMESTAMP NOT NULL)",
+                f"CREATE TABLE item (id {key}, title VARCHAR(120) NOT NULL, "
                 "description TEXT NOT NULL, category VARCHAR(60) NOT NULL, location VARCHAR(120) NOT NULL, "
                 "status VARCHAR(20) NOT NULL, reporter_name VARCHAR(100) NOT NULL, contact VARCHAR(160) NOT NULL, "
-                "image_url VARCHAR(500), owner_id INTEGER, created_at DATETIME NOT NULL)",
-                "CREATE TABLE claim (id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL, claimant_id INTEGER NOT NULL, "
-                "message TEXT NOT NULL, status VARCHAR(20) NOT NULL, created_at DATETIME NOT NULL, decided_at DATETIME)",
+                "image_url VARCHAR(500), owner_id INTEGER, created_at TIMESTAMP NOT NULL)",
+                f"CREATE TABLE claim (id {key}, item_id INTEGER NOT NULL, claimant_id INTEGER NOT NULL, "
+                "message TEXT NOT NULL, status VARCHAR(20) NOT NULL, created_at TIMESTAMP NOT NULL, decided_at TIMESTAMP)",
                 "INSERT INTO item (title, description, category, location, status, reporter_name, contact, created_at) "
                 "VALUES ('Old bottle', 'Steel bottle', 'Other', 'Gym', 'Found', 'X', 'x@example.com', '2026-09-01')",
             ):
