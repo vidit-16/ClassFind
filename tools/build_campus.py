@@ -324,8 +324,45 @@ def main():
         data["roads"].append({"id": road_id, "name": shown, "points": [shift(pt) for pt in points],
                               "aliases": [name.lower(), *words, *(w.replace("road", "path") for w in words)]})
     OUT.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
+    draw_map(data)
     print(f"{OUT.name}: {len(data['places'])} places, {len(data['roads'])} roads, "
           f"{len(nodes)} nodes, {len(edges)} edges")
+
+
+MAP_IMAGE = OUT.parents[1] / "docs" / "campus_map.svg"
+COLOURS = {"bit": ("#d2e6d9", "#4f8a6b"), "block": ("#e8eae6", "#a9b0a8"), "parking": ("#f1f2ef", "#a9b0a8"),
+           "small": ("#e8eae6", "#a9b0a8"), "gate": ("#f2d48d", "#b8923b")}
+
+
+def draw_map(data):
+    """docs/campus_map.svg for the README: the same places and paths the app draws, labelled."""
+    w, h = data["viewBox"][2], data["viewBox"][3]
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w // 2}" height="{h // 2}" '
+           'font-family="Arial, Helvetica, sans-serif">',
+           f'<rect width="{w}" height="{h}" fill="#f4f6f1"/>']
+    for road in data["roads"]:
+        d = "M" + " L".join(f"{x},{y}" for x, y in road["points"])
+        out.append(f'<path d="{d}" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" '
+                   'stroke-linejoin="round"/>')
+    for place in data["places"]:
+        fill, line = COLOURS[place["kind"]]
+        pts = " ".join(f"{x},{y}" for x, y in place["outline"])
+        dash = ' stroke-dasharray="7 5"' if place["kind"] == "parking" else ""
+        out.append(f'<polygon points="{pts}" fill="{fill}" stroke="{line}" stroke-width="2"{dash}/>')
+    for place in data["places"]:
+        xs = [x for x, _ in place["outline"]]
+        ys = [y for _, y in place["outline"]]
+        cx, cy, width = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, max(xs) - min(xs)
+        size, anchor = (14, "middle") if width >= 60 else (11, "start")
+        if width < 60:
+            cx = max(xs) + 6
+        out.append(f'<text x="{cx:.0f}" y="{cy + 5:.0f}" font-size="{size}" font-weight="700" fill="#24352b" '
+                   f'text-anchor="{anchor}">{place["short"]}</text>')
+    x, y = data["desk"]["point"]
+    out.append(f'<circle cx="{x}" cy="{y}" r="9" fill="#e3a21f" stroke="#fff" stroke-width="3"/>'
+               f'<text x="{x + 14}" y="{y + 22}" font-size="12" font-weight="700" fill="#8a5a12">Security desk</text>')
+    out.append("</svg>")
+    MAP_IMAGE.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

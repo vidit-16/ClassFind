@@ -176,6 +176,27 @@ class ClassFindTestCase(unittest.TestCase):
         # Viewing the page is not a POST, so it is never limited.
         self.assertEqual(self.client.get("/login").status_code, 200)
 
+    def test_a_class_on_one_address_can_sign_up_and_sign_in(self):
+        """Campus Wi-Fi puts a whole class behind one address."""
+        self.enable_rate_limits()
+        for n in range(30):
+            response = self.post("/register", data={"name": f"S{n}", "email": f"s{n}@example.com",
+                                                    "password": "secret123"})
+            self.assertNotEqual(response.status_code, 429, n)
+            self.post("/logout")
+        self.assertEqual(self.post("/register", data={"name": "X", "email": "x@example.com",
+                                                      "password": "secret123"}).status_code, 429)
+        _rate_hits.clear()
+        # Many students signing in at once, each once, is fine...
+        for n in range(30):
+            self.assertNotEqual(self.post("/login", data={"email": f"s{n}@example.com", "password": "secret123"}).status_code, 429)
+            self.post("/logout")
+        # ...but guessing one account's password is still stopped after 10 tries.
+        for _ in range(10):
+            self.post("/login", data={"email": "s1@example.com", "password": "wrong"})
+        self.assertEqual(self.post("/login", data={"email": "s1@example.com", "password": "wrong"}).status_code, 429)
+        self.assertNotEqual(self.post("/login", data={"email": "s2@example.com", "password": "wrong"}).status_code, 429)
+
     def test_rate_limits_are_counted_per_client_address(self):
         self.enable_rate_limits()
         bad = {"email": "nobody@example.com", "password": "wrong"}
@@ -481,7 +502,16 @@ class ClassFindTestCase(unittest.TestCase):
         self.login("finder@example.com")
         home = self.client.get("/").data
         self.assertEqual(home.count(b"Was that you?"), 2)
-        self.post(f"/item/{first}/handover-check", data={"answer": "yes", "next": "/"})
+        # Nobody else can answer the finder's question.
+        self.logout()
+        self.register("Someone", "someone@example.com")
+        self.post(f"/item/{first}/handover-check", data={"answer": "no"})
+        with app.app_context():
+            self.assertEqual(db.session.get(Item, first).finder_check, "pending")
+        self.logout()
+        self.login("finder@example.com")
+        response = self.post(f"/item/{first}/handover-check", data={"answer": "yes", "next": "/me"})
+        self.assertTrue(response.headers["Location"].endswith("/me"))
         with mock.patch("app.send_email") as sent:
             response = self.post(f"/item/{second}/handover-check", data={"answer": "no", "next": "//evil.example"})
         self.assertEqual(sent.call_args.args[0], "admin@example.com")
@@ -495,6 +525,42 @@ class ClassFindTestCase(unittest.TestCase):
         desk = self.client.get("/desk").data
         self.assertIn(b"not theirs", desk)
         self.assertIn(b"Red cap", desk.split(b"not theirs", 1)[1])
+
+    def test_the_desk_only_receives_found_items_it_is_waiting_for(self):
+        self.register_staff()
+        self.report("Lost scarf", "Red scarf", "Clothing", "Gym", "Lost")
+        self.logout()
+        item_id = self.found_item()
+        self.login("desk@example.com")
+        with app.app_context():
+            scarf = Item.query.filter_by(title="Lost scarf").one()
+            scarf.custody = "awaiting"
+            db.session.commit()
+            scarf_id = scarf.id
+        self.post(f"/desk/item/{scarf_id}/received")
+        # Not received only answers a finder who said they handed it in.
+        self.post(f"/desk/item/{item_id}/not-received")
+        with app.app_context():
+            self.assertEqual(db.session.get(Item, scarf_id).custody, "awaiting")
+            self.assertEqual(db.session.get(Item, item_id).custody, "awaiting")
+            self.assertEqual(len(db.session.get(Item, item_id).events), 1)
+
+    def test_staff_receiving_their_own_report_skip_the_handover_check(self):
+        self.register_staff()
+        with app.app_context():
+            staff = User.query.filter_by(email="desk@example.com").one()
+            item = Item(title="Umbrella", description="Black", category="Accessories", location="Gym",
+                        status="Found", reporter_name=staff.name, contact=staff.email, owner_id=staff.id,
+                        custody="awaiting")
+            db.session.add(item)
+            db.session.commit()
+            item_id = item.id
+        with mock.patch("app.send_email") as sent:
+            self.post(f"/desk/item/{item_id}/received")
+        sent.assert_not_called()
+        with app.app_context():
+            self.assertIsNone(db.session.get(Item, item_id).finder_check)
+        self.assertNotIn(b"Was that you?", self.client.get("/").data)
 
     def test_only_the_finder_can_mark_an_item_handed_in(self):
         item_id = self.found_item()

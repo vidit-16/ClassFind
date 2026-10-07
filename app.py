@@ -165,8 +165,10 @@ def protect_csrf():
 # memory, which is enough because Gunicorn runs a single process; a restart
 # simply starts the counts again.
 RATE_LIMITS = {
-    "login": (10, 60),
-    "register": (5, 60 * 60),
+    # A whole class on campus Wi-Fi shares one address, so these are per
+    # address but generous; guessing one account's password is capped below.
+    "login": (60, 60),
+    "register": (30, 60 * 60),
     "report": (20, 60 * 60),
     "submit_claim": (20, 60 * 60),
     # Collection codes are six digits, so the desk screen caps guesses.
@@ -177,6 +179,9 @@ RATE_LIMITS = {
     # Each clip is sent to Gemini.
     "voice": (40, 60 * 60),
 }
+# Limits per address and per account, for forms where one person attacking one
+# account matters more than how many people share an address.
+ACCOUNT_RATE_LIMITS = {"login": (10, 60)}
 app.config["RATE_LIMITS_ENABLED"] = True
 _rate_hits = {}
 _rate_lock = threading.Lock()
@@ -193,20 +198,24 @@ def rate_limit():
     limit = RATE_LIMITS.get(request.endpoint)
     if not limit:
         return
-    count, window = limit
-    key = (request.endpoint, request.remote_addr)
+    checks = [((request.endpoint, request.remote_addr), limit)]
+    if request.endpoint in ACCOUNT_RATE_LIMITS:
+        account = request.form.get("email", "").strip().lower()
+        checks.append(((request.endpoint, request.remote_addr, account), ACCOUNT_RATE_LIMITS[request.endpoint]))
     now = time.monotonic()
     with _rate_lock:
-        recent = [t for t in _rate_hits.get(key, ()) if now - t < window]
-        if len(recent) >= count:
+        for key, (count, window) in checks:
+            recent = [t for t in _rate_hits.get(key, ()) if now - t < window]
             _rate_hits[key] = recent
-            retry_after = int(window - (now - recent[0])) + 1
-            abort(429, description=f"Too many attempts. Try again in {retry_after} seconds.")
-        recent.append(now)
-        _rate_hits[key] = recent
-        # Drop addresses with nothing left in their window so the table stays small.
+            if len(recent) >= count:
+                retry_after = int(window - (now - recent[0])) + 1
+                abort(429, description=f"Too many attempts. Try again in {retry_after} seconds.")
+        for key, _ in checks:
+            _rate_hits[key].append(now)
+        # Drop keys with nothing left in the longest window so the table stays small.
         if len(_rate_hits) > 10000:
-            for stale in [k for k, hits in _rate_hits.items() if now - hits[-1] >= RATE_LIMITS[k[0]][1]]:
+            longest = max(window for _, window in [*RATE_LIMITS.values(), *ACCOUNT_RATE_LIMITS.values()])
+            for stale in [k for k, hits in _rate_hits.items() if not hits or now - hits[-1] >= longest]:
                 del _rate_hits[stale]
 
 

@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1010 1380" width="505" height="690" font-family="Arial, Helvetica, sans-serif">
+<rect width="1010" height="1380" fill="#f4f6f1"/>
+<path d="M0,52 L1010,52" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M50,0 L50,1380" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M50,800 L1010,800" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M0,1325 L1010,1325" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M195,457 L195,972" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M555,660 L555,962" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M375,720 L375,800" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M835,500 L835,800" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M480,355 L480,162 L590,162" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M50,457 L258,457" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M505,650 L575,650" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M685,605 L835,605" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M698,605 L698,733 L710,733" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M555,733 L698,733" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M430,550 L448,550 L448,500" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M590,52 L590,72" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M590,106 L590,162" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M590,149 L610,149" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M435,260 L508,260" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M570,500 L570,522" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M698,663 L714,663" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M800,528 L835,528" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M800,685 L860,685" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M835,500 L865,500" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M478,800 L478,825" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M770,800 L770,825" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M320,800 L320,825" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M195,1020 L268,1020" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M50,1067 L142,1067" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M179,1145 L179,1200" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M179,1325 L179,1234" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M555,840 L588,840" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M555,912 L590,912" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M276,762 L276,800" fill="none" stroke="#cfd4cc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="545,72 635,72 635,106 545,106" fill="#f2d48d" stroke="#b8923b" stroke-width="2"/>
+<polygon points="275,135 435,135 435,335 275,335" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
+<polygon points="508,190 735,190 735,330 508,330" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
+<polygon points="258,362 735,362 735,500 258,500" fill="#f1f2ef" stroke="#a9b0a8" stroke-width="2" stroke-dasharray="7 5"/>
+<polygon points="465,522 735,522 735,568 465,568" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
+<polygon points="111,412 145,412 145,502 111,502" fill="#f2d48d" stroke="#b8923b" stroke-width="2"/>
+<polygon points="255,512 430,512 430,590 505,590 505,720 255,720" fill="#d2e6d9" stroke="#4f8a6b" stroke-width="2"/>
+<polygon points="165,568 215,568 215,722 165,722" fill="#f1f2ef" stroke="#a9b0a8" stroke-width="2" stroke-dasharray="7 5"/>
+<polygon points="575,592 685,592 685,715 575,715" fill="#f1f2ef" stroke="#a9b0a8" stroke-width="2" stroke-dasharray="7 5"/>
+<polygon points="760,468 800,468 800,588 760,588" fill="#d2e6d9" stroke="#4f8a6b" stroke-width="2"/>
+<polygon points="865,415 1005,415 1005,583 865,583" fill="#d2e6d9" stroke="#4f8a6b" stroke-width="2"/>
+<polygon points="714,645 746,645 746,677 714,677" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
+<polygon points="710,716 738,716 738,750 710,750" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
+<polygon points="111,755 145,755 145,845 111,845" fill="#f2d48d" stroke="#b8923b" stroke-width="2"/>
+<polygon points="255,825 385,825 385,910 255,910" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
+<polygon points="405,825 532,825 532,870 405,870" fill="#d2e6d9" stroke="#4f8a6b" stroke-width="2"/>
+<polygon points="588,822 615,822 615,858 588,858" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
+<polygon points="590,892 620,892 620,932 590,932" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
+<polygon points="635,825 915,825 915,980 635,980" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
+<polygon points="146,905 174,905 174,933 146,933" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
+<polygon points="142,972 208,972 208,1145 142,1145" fill="#f1f2ef" stroke="#a9b0a8" stroke-width="2" stroke-dasharray="7 5"/>
+<polygon points="268,925 415,925 415,1120 268,1120" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
+<polygon points="67,1022 101,1022 101,1112 67,1112" fill="#f2d48d" stroke="#b8923b" stroke-width="2"/>
+<polygon points="134,1200 224,1200 224,1234 134,1234" fill="#f2d48d" stroke="#b8923b" stroke-width="2"/>
+<polygon points="760,640 800,640 800,760 760,760" fill="#d2e6d9" stroke="#4f8a6b" stroke-width="2"/>
+<polygon points="860,635 950,635 950,760 860,760" fill="#d2e6d9" stroke="#4f8a6b" stroke-width="2"/>
+<polygon points="455,750 483,750 483,778 455,778" fill="#d2e6d9" stroke="#4f8a6b" stroke-width="2"/>
+<polygon points="262,734 290,734 290,762 262,762" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
+<polygon points="610,122 715,122 715,176 610,176" fill="#e8eae6" stroke="#a9b0a8" stroke-width="2"/>
+<text x="590" y="94" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">KIMS A gate</text>
+<text x="355" y="240" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">KIMS OPD</text>
+<text x="622" y="265" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">KIMS Hospital</text>
+<text x="496" y="436" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">KIMS Parking</text>
+<text x="600" y="550" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Kalakshetra</text>
+<text x="151" y="462" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">VS gate</text>
+<text x="380" y="621" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Main Block</text>
+<text x="221" y="650" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">P1</text>
+<text x="630" y="658" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Mech Parking</text>
+<text x="806" y="533" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">Chem/Phy</text>
+<text x="935" y="504" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Mech Blocks</text>
+<text x="752" y="666" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">Society</text>
+<text x="744" y="738" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">Mech xerox</text>
+<text x="151" y="805" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">BIT Main Gate</text>
+<text x="320" y="872" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Law / Physio</text>
+<text x="468" y="852" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Canteen</text>
+<text x="621" y="845" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">Xerox</text>
+<text x="626" y="917" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">Puff shop</text>
+<text x="775" y="908" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Dental College</text>
+<text x="180" y="924" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">Nandini</text>
+<text x="175" y="1064" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">P2</text>
+<text x="342" y="1028" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">KIN / VCS</text>
+<text x="107" y="1072" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">VCS gate</text>
+<text x="179" y="1222" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">KIN gate</text>
+<text x="806" y="705" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">MBA</text>
+<text x="905" y="702" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">Workshops</text>
+<text x="489" y="769" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">BIT Tree</text>
+<text x="296" y="753" font-size="11" font-weight="700" fill="#24352b" text-anchor="start">ATM</text>
+<text x="662" y="154" font-size="14" font-weight="700" fill="#24352b" text-anchor="middle">KIMS Canteen</text>
+<circle cx="375" cy="720" r="9" fill="#e3a21f" stroke="#fff" stroke-width="3"/><text x="389" y="742" font-size="12" font-weight="700" fill="#8a5a12">Security desk</text>
+</svg>
