@@ -135,7 +135,9 @@ body::after{content:"";position:fixed;z-index:-1;width:420px;height:420px;right:
 .desk-chip{position:absolute;left:12px;top:12px;background:rgba(33,92,67,.92);color:#fff;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:6px 9px;border-radius:999px}.claim-steps{list-style:none;display:flex;gap:0;margin:10px 0 12px;padding:0;font-size:11px;color:var(--muted);flex-wrap:wrap}.claim-steps li{position:relative;padding:0 14px 0 18px}.claim-steps li:before{content:'';position:absolute;left:0;top:2px;width:10px;height:10px;border-radius:50%;border:2px solid var(--line);background:#fff}.claim-steps li.done{color:var(--accent);font-weight:700}.claim-steps li.done:before{background:var(--accent);border-color:var(--accent)}.claim-steps.rejected li.done:nth-child(2){color:var(--lost)}.claim-steps.rejected li.done:nth-child(2):before{background:var(--lost);border-color:var(--lost)}
 .place-note{display:block;margin-top:4px;font-size:12px;font-weight:600;color:var(--muted)}
 /* Campus map home page */
-.campus{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(340px,1fr);gap:30px;align-items:start;margin-top:-28px}
+.campus{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(340px,1fr);gap:30px;align-items:start}
+/* Pull the map up only when nothing sits above it; messages and notices keep their own space. */
+.page-shell>.campus:first-child{margin-top:-28px}
 .campus-map{--ground:#eef1ea;--road:#d8dcd4;--block:#e5e8e2;--block-line:#c6ccc4;--bit:#d2e6d9;--bit-line:#86b39a;--park:#eaece7;--gate:#f2d48d;--gate-line:#c9a54e;--label:#334037;--drop:rgba(23,32,25,.11);--heat:#e0693f;--badge:#215c43;--badge-ink:#fff;--desk:#e3a21f;--route:#215c43;
   position:sticky;top:92px;height:calc(100vh - 116px);min-height:520px;background:var(--ground);border:1px solid var(--line);border-radius:22px;overflow:hidden;transition:background .8s ease}
 .campus-map.is-night{--ground:#0f1813;--road:#1f2d25;--block:#18251e;--block-line:#2b3e33;--bit:#1c3428;--bit-line:#3f7d5d;--park:#141e18;--gate:#4f4220;--gate-line:#94782f;--label:#b5c8bb;--drop:rgba(0,0,0,.5);--badge:#7cc4a0;--badge-ink:#0f1813;--desk:#f4b938;--route:#9be3bd;border-color:#1f2d25}
@@ -203,7 +205,8 @@ body::after{content:"";position:fixed;z-index:-1;width:420px;height:420px;right:
 .result-side .desk-chip{position:static;font-size:9px;padding:4px 7px}
 .compact-empty{padding:34px 18px}.compact-empty h3{font-size:19px}
 @media(max-width:900px){
-  .campus{display:flex;flex-direction:column;gap:18px;margin-top:-30px}
+  .campus{display:flex;flex-direction:column;gap:18px}
+  .page-shell>.campus:first-child{margin-top:-30px}
   .campus-panel{display:contents}
   .campus-panel>*{order:1;width:100%}
   .campus-map{order:2;position:relative;top:0;height:68vh;min-height:430px;width:100%}
@@ -267,8 +270,6 @@ body::after{content:"";position:fixed;z-index:-1;width:420px;height:420px;right:
 .route-alt{fill:none;stroke:var(--route);stroke-width:4;stroke-dasharray:2 9;stroke-linecap:round;opacity:.55}
 .admin-accounts{margin-top:56px}
 .invite-form{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}.invite-form input{flex:1 1 260px;width:auto}
-.invite-banner{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;margin-bottom:20px;border-radius:14px;background:var(--soft);border:1px solid #c9dccf}
-.invite-banner form{display:inline}.invite-banner .actions{display:flex;gap:8px}
 .pending-invites{margin:0 0 18px;padding:0;list-style:none;display:grid;gap:6px;font-size:13px;color:var(--muted)}
 .inline-form{display:inline}
 .search-input-wrap .inline-mic{position:absolute;right:6px;top:50%;transform:translateY(-50%);padding:4px;border:0;background:transparent}
@@ -279,3 +280,9 @@ body::after{content:"";position:fixed;z-index:-1;width:420px;height:420px;right:
 .picker-choice.needs-pick{color:var(--lost)}
 .headline-line{display:inline-block;transition:opacity .16s ease,transform .16s ease}.headline-line.swapping{opacity:0;transform:translateY(6px)}
 @media(prefers-reduced-motion:reduce){.headline-line{transition:none}}
+/* Notices (invitations, handover confirmations): part of the page flow, never overlapping. */
+.notice{position:relative;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;margin:0 0 20px;border-radius:14px;background:var(--soft);border:1px solid #c9dccf;clear:both}
+.notice p{margin:0;line-height:1.5}.notice .actions{display:flex;flex-wrap:wrap;gap:8px}.notice form{display:inline}
+.notice.warn{background:#fbf1e3;border-color:#ecd3ac}
+.flash-stack{position:relative;z-index:1}
+.invite-question{margin:0 0 18px;font-size:16px;line-height:1.6}.invite-question strong{display:block;font:600 20px "Space Grotesk",sans-serif;margin-bottom:4px}

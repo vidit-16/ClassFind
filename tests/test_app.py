@@ -526,6 +526,8 @@ class ClassFindTestCase(unittest.TestCase):
         self.logout()
         self.login("student@example.com")
         self.assertIn(b"invited you to work the security desk", self.client.get("/").data)
+        page = self.client.get(f"/staff/invite/{token}").data
+        self.assertIn(b"Do you want to join the security desk?", page)
         self.post(f"/staff/invite/{token}", data={"answer": "accept"}, follow_redirects=True)
         with app.app_context():
             self.assertTrue(db.session.get(User, student_id).is_staff)
