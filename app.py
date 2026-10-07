@@ -1486,6 +1486,25 @@ MIXED_WORDS = {
 }
 
 
+def rules_description(title, status, location):
+    """A plain sentence for the description when no model is available to write one."""
+    if not title:
+        return ""
+    where = f" at the {location.lower()}" if location else ""
+    return f"{title}{' found' if status == 'Found' else ' lost'}{where}."
+
+
+def model_error(exc):
+    """What went wrong talking to a model, with the provider's own message when it sent one."""
+    if isinstance(exc, urllib.error.HTTPError):
+        try:
+            detail = exc.read().decode("utf-8", "replace")[:300]
+        except Exception:  # noqa: BLE001 - the status code alone is still useful
+            detail = ""
+        return f"HTTP {exc.code}: {detail}".strip()
+    return f"{type(exc).__name__}: {exc}"[:300]
+
+
 def parse_mixed_rules(text, status):
     """A Hinglish or Kanglish sentence without a model: drop the joining words and the places."""
     words = [w for w in re.findall(r"[\w']+", text) if w.lower() not in MIXED_WORDS]
@@ -1494,11 +1513,13 @@ def parse_mixed_rules(text, status):
     first = campus.find_places(text)
     category = next((name for name, keys in CATEGORY_WORDS.items()
                      if any(re.search(rf"\b{re.escape(k)}\b", title.lower()) for k in keys)), "Other")
+    title = title[:1].upper() + title[1:] if title else ""
+    location = first[0]["words"].title() if first else ""
     return {
-        "title": title[:1].upper() + title[1:] if title else "",
-        "description": text.strip()[:1000],
+        "title": title,
+        "description": rules_description(title, status, location),
         "category": category,
-        "location": first[0]["words"].title() if first else "",
+        "location": location,
         "status": status,
     }
 
@@ -1570,7 +1591,7 @@ def parse_report_rules(text):
         title = title[:1].upper() + title[1:]
     return {
         "title": title,
-        "description": text.strip()[:1000],
+        "description": rules_description(title, status, location),
         "category": category,
         "location": location[:120],
         "status": status,
@@ -1585,6 +1606,11 @@ LLM_PROVIDERS = (
     ("CEREBRAS_API_KEY", "https://api.cerebras.ai/v1/chat/completions", "llama-3.3-70b"),
     ("GROQ_API_KEY", "https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile"),
 )
+
+
+MODEL_TIMEOUT = 15
+# The latest failure of each kind, shown on the admin AI check.
+LAST_MODEL_ERROR = {"text": "", "audio": ""}
 
 
 def llm_provider():
@@ -1603,12 +1629,15 @@ def parse_report_with_model(text, prompt=None):
         return None
     url, key, model = provider
     prompt = prompt or REPORT_PROMPT
-    body = json.dumps({
+    payload = {
         "model": model,
         "temperature": 0,
         "response_format": {"type": "json_object"},
         "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": text}],
-    }).encode()
+    }
+    if "generativelanguage" in url:
+        payload["reasoning_effort"] = "none"
+    body = json.dumps(payload).encode()
     request_ = urllib.request.Request(
         url, data=body, method="POST",
         # Some providers refuse urllib's default user agent.
@@ -1616,14 +1645,16 @@ def parse_report_with_model(text, prompt=None):
                  "User-Agent": "ClassFind/2.0"},
     )
     try:
-        with urllib.request.urlopen(request_, timeout=8) as response:
+        with urllib.request.urlopen(request_, timeout=MODEL_TIMEOUT) as response:
             reply = json.loads(response.read())
         content = reply["choices"][0]["message"]["content"].strip()
         # Tolerate a reply wrapped in a ```json fence.
         content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content)
         return json.loads(content)
-    except (urllib.error.URLError, TimeoutError, KeyError, IndexError, ValueError):
-        app.logger.warning("Report parsing by the model failed; using the rules instead.")
+    except (urllib.error.URLError, TimeoutError, KeyError, IndexError, ValueError) as exc:
+        LAST_MODEL_ERROR["text"] = model_error(exc)
+        app.logger.warning("Report parsing by the model failed (%s); using the rules instead.",
+                           LAST_MODEL_ERROR["text"])
         return None
 
 
@@ -1742,7 +1773,8 @@ def hear_with_gemini(audio):
             {"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(audio).decode()}},
             {"text": VOICE_PROMPT},
         ]}],
-        "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
+        "generationConfig": {"temperature": 0, "responseMimeType": "application/json",
+                             "thinkingConfig": {"thinkingBudget": 0}},
     }).encode()
     request_ = urllib.request.Request(
         GEMINI_AUDIO_URL.format(model=model), data=body, method="POST",
@@ -1755,9 +1787,47 @@ def hear_with_gemini(audio):
         content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content)
         heard = json.loads(content)
         return heard if isinstance(heard, dict) else None
-    except (urllib.error.URLError, TimeoutError, KeyError, IndexError, ValueError):
-        app.logger.warning("Gemini could not read the voice clip; using the browser's text instead.")
+    except (urllib.error.URLError, TimeoutError, KeyError, IndexError, ValueError) as exc:
+        LAST_MODEL_ERROR["audio"] = model_error(exc)
+        app.logger.warning("Gemini could not read the voice clip (%s); using the browser's text instead.",
+                           LAST_MODEL_ERROR["audio"])
         return None
+
+
+def silent_wav(seconds=0.5, rate=16000):
+    """A short silent clip, to check that Gemini accepts audio from this key."""
+    frames = int(seconds * rate)
+    header = (b"RIFF" + (36 + frames * 2).to_bytes(4, "little") + b"WAVEfmt " + (16).to_bytes(4, "little")
+              + (1).to_bytes(2, "little") + (1).to_bytes(2, "little") + rate.to_bytes(4, "little")
+              + (rate * 2).to_bytes(4, "little") + (2).to_bytes(2, "little") + (16).to_bytes(2, "little")
+              + b"data" + (frames * 2).to_bytes(4, "little"))
+    return header + bytes(frames * 2)
+
+
+@app.post("/admin/ai-check")
+@admin_required
+def ai_check():
+    """Try the text model and Gemini audio once each and say what happened, without showing any key."""
+    provider = llm_provider()
+    if not provider:
+        flash("AI check: no model key is set (GEMINI_API_KEY, CEREBRAS_API_KEY or GROQ_API_KEY).", "error")
+        return redirect(url_for("admin_dashboard"))
+    key_name = next(name for name, url, _ in LLM_PROVIDERS if url == provider[0])
+    LAST_MODEL_ERROR.update(text="", audio="")
+    started = time.monotonic()
+    text_ok = parse_report_with_model("Found a black notebook in the library") is not None
+    text_time = time.monotonic() - started
+    parts = [f"Text via {key_name} ({provider[2]}): "
+             + (f"working, {text_time:.1f}s." if text_ok else f"failed. {LAST_MODEL_ERROR['text']}")]
+    if os.getenv("GEMINI_API_KEY", "").strip():
+        started = time.monotonic()
+        audio_ok = hear_with_gemini(silent_wav()) is not None
+        parts.append("Voice via Gemini: "
+                     + (f"working, {time.monotonic() - started:.1f}s." if audio_ok else f"failed. {LAST_MODEL_ERROR['audio']}"))
+    else:
+        parts.append("Voice via Gemini: GEMINI_API_KEY is not set, so voice uses the browser's captions.")
+    flash("AI check: " + " ".join(parts), "success" if text_ok else "error")
+    return redirect(url_for("admin_dashboard"))
 
 
 def search_from(heard_text, item, places_said):

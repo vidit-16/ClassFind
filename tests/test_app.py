@@ -1,5 +1,6 @@
 import json
 import os
+import urllib.error
 import shutil
 import tempfile
 import unittest
@@ -774,6 +775,23 @@ class ClassFindTestCase(unittest.TestCase):
         response = self.voice("retrace", None, transcript="", audio=b"")[0]
         self.assertEqual(response.status_code, 422)
         self.assertEqual(self.voice("sing", None, transcript="hello")[0].status_code, 400)
+
+    def test_rules_write_a_description_instead_of_echoing(self):
+        fields = parse_report_rules("found a black Notebook in the mechanical parking")
+        self.assertEqual(fields["title"], "Black Notebook")
+        self.assertNotIn("found a black", fields["description"])
+        self.assertTrue(fields["description"].startswith("Black Notebook found"))
+
+    def test_the_ai_check_reports_the_providers_error(self):
+        self.register_admin()
+        os.environ["GEMINI_API_KEY"] = "test-key"
+        self.addCleanup(os.environ.pop, "GEMINI_API_KEY", None)
+        error = urllib.error.HTTPError("https://x", 403, "Forbidden", {}, BytesIO(b'{"error": "API key not valid"}'))
+        with mock.patch("urllib.request.urlopen", side_effect=error):
+            page = self.post("/admin/ai-check", follow_redirects=True).data
+        self.assertIn(b"HTTP 403", page)
+        self.assertIn(b"API key not valid", page)
+        self.assertNotIn(b"test-key", page)
 
     def test_hinglish_and_kanglish_without_a_model(self):
         found = parse_report_rules("Mujhe computer lab Mein Ek key Mili Hai")

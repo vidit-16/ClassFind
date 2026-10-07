@@ -21,7 +21,8 @@
 
 
 <section class="insights">
-  <div class="results-header"><div><p class="section-kicker">INSIGHTS</p><h2>How lost and found is going</h2></div><span class="queue-note">From reports and the custody log</span></div>
+  <div class="results-header"><div><p class="section-kicker">INSIGHTS</p><h2>How lost and found is going</h2></div><span class="queue-note">From reports and the custody log ·
+    <form class="inline-form" method="post" action="{{ url_for('ai_check') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="inline-action" type="submit">Check the AI connection</button></form></span></div>
   <div class="insight-grid">
     <article class="insight-card insight-wide">
       <h3>Reports per week</h3>
