@@ -866,6 +866,13 @@ class ClassFindTestCase(unittest.TestCase):
         lost = parse_report_rules("mera black wallet canteen mein kho gaya")
         self.assertEqual((lost["title"], lost["status"]), ("Black wallet", "Lost"))
         self.assertEqual(parse_report_rules("nanna bottle library alli kaledu hoyitu")["title"], "Bottle")
+        science = parse_report_rules("Mujhe computer science lab Mein Ek notebook Mili Hai")
+        self.assertEqual(science["location"], "Computer Science Lab")
+        self.assertEqual(science["description"], "Notebook found at the computer science lab.")
+        hindi = parse_report_rules("मुझे कंप्यूटर साइंस लैब में एक नोटबुक मिल गया")
+        self.assertEqual((hindi["title"], hindi["status"]), ("नोटबुक", "Found"))
+        self.assertEqual(parse_report_rules("ನನಗೆ ಲೈಬ್ರರಿ ಅಲ್ಲಿ ಒಂದು ಬಾಟಲ್ ಸಿಕ್ಕಿತು")["status"], "Found")
+        self.assertEqual(parse_report_rules("मेरा wallet canteen में खो गया")["status"], "Lost")
         gaya = parse_report_rules("Mujhe computer lab Mein Ek notebook Mil Gaya")
         self.assertEqual((gaya["title"], gaya["status"]), ("Notebook", "Found"))
 

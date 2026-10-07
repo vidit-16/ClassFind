@@ -44,7 +44,8 @@ PLACES = [
       "instrumentation", "ise", "information science", "ai ml", "aiml", "ai and ml", "ece",
       "electronics department", "electronics lab", "electronics and communication", "math", "maths", "mathematics",
       "cyber security", "cybersecurity", "cybersec", "iot", "internet of things", "data science", "vlsi",
-      "ಲೈಬ್ರರಿ", "ಮೇನ್ ಬ್ಲಾಕ್", "लाइब्रेरी", "मेन ब्लॉक"]),
+      "ಲೈಬ್ರರಿ", "ಮೇನ್ ಬ್ಲಾಕ್", "लाइब्रेरी", "मेन ब्लॉक", "कंप्यूटर साइंस लैब", "कंप्यूटर साइंस",
+      "कंप्यूटर लैब", "ಕಂಪ್ಯೂಟರ್ ಸೈನ್ಸ್", "ಕಂಪ್ಯೂಟರ್ ಲ್ಯಾಬ್", "बैंक", "ಬ್ಯಾಂಕ್"]),
     ("p1", 9, "Parking 1", "P1", "parking", (495, 868, 545, 1022),
      ["parking 1", "parking one", "p1", "p 1", "first parking"]),
     ("mech-parking", 10, "Mechanical parking and garage", "Mech Parking", "parking", (905, 892, 1015, 1015),
@@ -117,6 +118,8 @@ GROUPS = {
     "shop": ["puff-shop", "nandini", "xerox-mech", "xerox-canteen"],
     "gate": ["main-gate", "vs-gate", "kims-gate", "vcs-gate", "kin-gate"],
     "lab": ["main-block", "chem-phy", "mech-blocks", "workshops"],
+    "लैब": ["main-block", "chem-phy", "mech-blocks", "workshops"],
+    "ಲ್ಯಾಬ್": ["main-block", "chem-phy", "mech-blocks", "workshops"],
     "ಪಾರ್ಕಿಂಗ್": ["p1", "p2", "mech-parking"],
     "पार्किंग": ["p1", "p2", "mech-parking"],
 }
