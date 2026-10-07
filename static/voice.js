@@ -14,7 +14,7 @@
   const QUIET_STOP_MS = 5000;
   const NO_SPEECH_STOP_MS = 8000;
   const MAX_MS = 30000;
-  const SPEAKING_LEVEL = 0.015;
+  const SPEAKING_LEVEL = 0.008;
 
   // 16-bit mono WAV, which Gemini accepts and every browser can make.
   function wav(samples, inRate) {
@@ -78,7 +78,8 @@
       const rate = context.sampleRate;
       context.close();
       // Captions can arrive a moment after the audio stops.
-      window.setTimeout(() => finish({ audio: lastVoice ? wav(all, rate) : null, captions: captions.trim() }), 400);
+      const seconds = total / rate;
+      window.setTimeout(() => finish({ audio: lastVoice ? wav(all, rate) : null, captions: captions.trim(), seconds }), 400);
     };
 
     node.onaudioprocess = (event) => {
@@ -161,7 +162,8 @@
       say(clip.captions ? `“${clip.captions}” · working it out…` : "Working out what you said…");
       try {
         const data = await send(url, mode, clip);
-        say(data.heard ? `“${data.heard}”` : "");
+        // The recording's length shows whether a short transcript was cut off by the mic.
+        say(data.heard ? `“${data.heard}” (${clip.seconds.toFixed(1)} s)` : "");
         handlers[mode](data, button);
       } catch (error) {
         say(error.message || "Couldn't make that out. Try again, or type it.");

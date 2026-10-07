@@ -104,6 +104,12 @@ PLACES = [
 # report asks which one.
 GROUPS = {
     "canteen": ["canteen", "puff-shop", "nandini"],
+    # How speech-to-text often spells canteen in Kannada and Hindi.
+    "ಕೆಂಟಿನ್": ["canteen", "puff-shop", "nandini"],
+    "ಕ್ಯಾಂಟಿನ್": ["canteen", "puff-shop", "nandini"],
+    "ಕೇಂಟೀನ್": ["canteen", "puff-shop", "nandini"],
+    "कैंटिन": ["canteen", "puff-shop", "nandini"],
+    "केंटीन": ["canteen", "puff-shop", "nandini"],
     "ಕ್ಯಾಂಟೀನ್": ["canteen", "puff-shop", "nandini"],
     "कैंटीन": ["canteen", "puff-shop", "nandini"],
     "xerox": ["xerox-mech", "xerox-canteen"],
