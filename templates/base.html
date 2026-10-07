@@ -50,7 +50,7 @@
     {% endif %}
   {% endwith %}
   {% if staff_invite and request.endpoint != "staff_invite" %}
-  <div class="invite-banner">
+  <div class="notice">
     <span><strong>{{ staff_invite.invited_by.name if staff_invite.invited_by else "An admin" }}</strong> invited you to work the security desk.</span>
     <a class="primary-btn compact" href="{{ url_for('staff_invite', token=staff_invite.token) }}">See the invitation</a>
   </div>

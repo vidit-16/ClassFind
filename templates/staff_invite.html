@@ -10,6 +10,8 @@
   </div>
   <form class="report-form form-section" method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <p class="invite-question"><strong>Do you want to join the security desk?</strong>
+      Accept to start receiving items and handling claims at the desk. If you decline, nothing changes, and the admin can invite you again later. Desk access can be removed by the admin at any time.</p>
     <div class="form-actions">
       <button class="secondary-btn" type="submit" name="answer" value="decline">Decline</button>
       <button class="primary-btn" type="submit" name="answer" value="accept">Accept <span>→</span></button>
