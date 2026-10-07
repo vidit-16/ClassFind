@@ -799,6 +799,8 @@ class ClassFindTestCase(unittest.TestCase):
         lost = parse_report_rules("mera black wallet canteen mein kho gaya")
         self.assertEqual((lost["title"], lost["status"]), ("Black wallet", "Lost"))
         self.assertEqual(parse_report_rules("nanna bottle library alli kaledu hoyitu")["title"], "Bottle")
+        gaya = parse_report_rules("Mujhe computer lab Mein Ek notebook Mil Gaya")
+        self.assertEqual((gaya["title"], gaya["status"]), ("Notebook", "Found"))
 
     def test_desk_columns_are_added_to_an_older_database(self):
         """A database from before the desk gets its columns, and found items count as held."""

@@ -1480,7 +1480,7 @@ def reject_claim(claim_id):
 # Words that mark a Hinglish or Kanglish sentence and carry no item details.
 MIXED_WORDS = {
     "mujhe", "mera", "meri", "mere", "maine", "humne", "ek", "mein", "me", "hai", "tha", "thi", "ho",
-    "mila", "mili", "mile", "gaya", "gayi", "kho", "gum", "ko", "ka", "ki", "ke", "se", "par", "pe", "aaj",
+    "mil", "mila", "mili", "mile", "gaya", "gayi", "gya", "gyi", "hogaya", "hogya", "raha", "rahi", "diya", "liya", "kho", "gum", "ko", "ka", "ki", "ke", "se", "par", "pe", "aaj",
     "kal", "yeh", "ye", "woh", "wo", "nanna", "nange", "nanu", "ondu", "alli", "sikkitu", "sikkide",
     "hoyitu", "kaledu", "kalkonde", "ivattu", "ninne", "hatra", "hathra", "andar", "bahar", "paas",
 }
