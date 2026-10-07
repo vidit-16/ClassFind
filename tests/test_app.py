@@ -10,7 +10,8 @@ from botocore.exceptions import ClientError
 from datetime import datetime, timedelta
 from io import BytesIO
 
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+# CI also runs these against PostgreSQL, the database the live site uses.
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite:///:memory:")
 os.environ["SECRET_KEY"] = "test-secret"
 
 import app as app_module
@@ -43,7 +44,17 @@ from app import (
 
 
 class ClassFindTestCase(unittest.TestCase):
+    # Settings that would reach real services or change which one is asked. A
+    # developer's own keys must never make a test call Groq or Gemini.
+    OUTSIDE_SETTINGS = ("GEMINI_API_KEY", "GROQ_API_KEY", "CEREBRAS_API_KEY", "LLM_MODEL", "AI_ORDER",
+                        "GEMINI_MODEL", "GROQ_MODEL", "CEREBRAS_MODEL", "GEMINI_AUDIO_MODEL", "WHISPER_MODEL",
+                        "SES_SENDER", "PHOTO_LABELS", "THUMBNAILS", "ADMIN_EMAIL", "STAFF_EMAILS")
+
     def setUp(self):
+        saved = {name: os.environ.pop(name) for name in self.OUTSIDE_SETTINGS if name in os.environ}
+        self.addCleanup(os.environ.update, saved)
+        app_module._cooling_until.clear()
+        app_module._found_models.clear()
         app.config.update(TESTING=True, WTF_CSRF_ENABLED=False, RATE_LIMITS_ENABLED=False)
         self.upload_dir = tempfile.mkdtemp()
         app.config["UPLOAD_FOLDER"] = self.upload_dir
@@ -118,7 +129,8 @@ class ClassFindTestCase(unittest.TestCase):
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["database"], "ok")
-        self.assertEqual(response.get_json()["engine"], "sqlite")
+        with app.app_context():
+            self.assertEqual(response.get_json()["engine"], db.engine.dialect.name)
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
         self.assertEqual(response.headers["X-Frame-Options"], "DENY")
         self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
@@ -1047,16 +1059,18 @@ class ClassFindTestCase(unittest.TestCase):
         """A database from before the desk gets its columns, and found items count as held."""
         with app.app_context():
             db.drop_all()
+            # Both databases accept this; INTEGER PRIMARY KEY only numbers rows by itself in SQLite.
+            key = "INTEGER PRIMARY KEY" if db.engine.dialect.name == "sqlite" else "SERIAL PRIMARY KEY"
             for statement in (
-                'CREATE TABLE "user" (id INTEGER PRIMARY KEY, name VARCHAR(100) NOT NULL, '
+                f'CREATE TABLE "user" (id {key}, name VARCHAR(100) NOT NULL, '
                 "email VARCHAR(160) NOT NULL, password_hash VARCHAR(255) NOT NULL, "
-                "is_admin BOOLEAN NOT NULL, created_at DATETIME NOT NULL)",
-                "CREATE TABLE item (id INTEGER PRIMARY KEY, title VARCHAR(120) NOT NULL, "
+                "is_admin BOOLEAN NOT NULL, created_at TIMESTAMP NOT NULL)",
+                f"CREATE TABLE item (id {key}, title VARCHAR(120) NOT NULL, "
                 "description TEXT NOT NULL, category VARCHAR(60) NOT NULL, location VARCHAR(120) NOT NULL, "
                 "status VARCHAR(20) NOT NULL, reporter_name VARCHAR(100) NOT NULL, contact VARCHAR(160) NOT NULL, "
-                "image_url VARCHAR(500), owner_id INTEGER, created_at DATETIME NOT NULL)",
-                "CREATE TABLE claim (id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL, claimant_id INTEGER NOT NULL, "
-                "message TEXT NOT NULL, status VARCHAR(20) NOT NULL, created_at DATETIME NOT NULL, decided_at DATETIME)",
+                "image_url VARCHAR(500), owner_id INTEGER, created_at TIMESTAMP NOT NULL)",
+                f"CREATE TABLE claim (id {key}, item_id INTEGER NOT NULL, claimant_id INTEGER NOT NULL, "
+                "message TEXT NOT NULL, status VARCHAR(20) NOT NULL, created_at TIMESTAMP NOT NULL, decided_at TIMESTAMP)",
                 "INSERT INTO item (title, description, category, location, status, reporter_name, contact, created_at) "
                 "VALUES ('Old bottle', 'Steel bottle', 'Other', 'Gym', 'Found', 'X', 'x@example.com', '2026-09-01')",
             ):
@@ -1144,6 +1158,82 @@ class ClassFindTestCase(unittest.TestCase):
             db.session.commit()
             self.assertEqual(escalate_unclaimed_valuables(), 0)
             self.assertEqual(Item.query.filter_by(custody="office").count(), 0)
+
+    # The tests below cover what mutation testing (tools/mutate.py) showed no test noticed.
+
+    def test_a_valuable_with_an_approved_claim_stays_at_the_desk(self):
+        item_id = self.found_item("Grey phone", category="Electronics")
+        self.register("Owner", "owner@example.com")
+        self.claim(item_id, "IMEI ends in 4471 and the lock screen is a beach photo.")
+        self.logout()
+        self.register_staff()
+        self.post(f"/desk/item/{item_id}/received", follow_redirects=True)
+        with app.app_context():
+            claim_id = Claim.query.one().id
+        self.post(f"/claims/{claim_id}/accept", follow_redirects=True)
+        with app.app_context():
+            for event in db.session.get(Item, item_id).events:
+                event.created_at = datetime.utcnow() - timedelta(hours=100)
+            db.session.commit()
+            # The owner is on the way with a code: the phone must not move to the office.
+            self.assertEqual(escalate_unclaimed_valuables(), 0)
+            self.assertEqual(db.session.get(Item, item_id).custody, "held")
+
+    def test_collecting_an_item_closes_the_other_claims_on_it(self):
+        item_id = self.found_item()
+        self.register("Owner", "owner@example.com")
+        self.claim(item_id)
+        self.logout()
+        self.register("Other", "other@example.com")
+        self.claim(item_id, "Mine too, it has a scratch on the lid and my initials.")
+        self.logout()
+        self.register("Third", "third@example.com")
+        self.report("Red cap", "Cotton", "Clothing", "Gym", "Found")
+        self.logout()
+        self.register_staff()
+        with app.app_context():
+            owner_claim = Claim.query.join(User, Claim.claimant_id == User.id).filter(
+                User.email == "owner@example.com").one().id
+            cap_id = Item.query.filter_by(title="Red cap").one().id
+        self.post(f"/desk/item/{item_id}/received", follow_redirects=True)
+        self.post(f"/claims/{owner_claim}/accept", follow_redirects=True)
+        self.post("/desk/handover", data={"code": self.code_for(owner_claim)}, follow_redirects=True)
+        with app.app_context():
+            statuses = {c.claimant.email: c.status for c in Claim.query.filter_by(item_id=item_id)}
+            self.assertEqual(statuses, {"owner@example.com": "Collected", "other@example.com": "Rejected"})
+            self.assertEqual(db.session.get(Item, cap_id).status, "Found")
+
+    def test_retrace_ranks_where_you_went_above_what_you_passed(self):
+        self.register()
+        self.found_at("Wallet A", "canteen counter", "canteen")
+        self.found_at("Wallet B", "outside the main block", "main-block", "outside")
+        since = (datetime.utcnow() - timedelta(hours=6)).isoformat() + "Z"
+        items = self.client.get("/api/retrace", query_string={
+            "stops": "canteen", "passed": "main-block", "since": since}).get_json()["items"]
+        self.assertEqual([i["title"] for i in items], ["Wallet A", "Wallet B"])
+        self.assertEqual(items[0]["why"], "at Canteen, where you went")
+        self.assertEqual(items[1]["why"], "outside Main Block, which you passed")
+
+    def test_retrace_counts_what_the_photo_shows(self):
+        self.register()
+        self.found_at("Grey item", "canteen", "canteen")
+        self.found_at("Other item", "canteen", "canteen")
+        with app.app_context():
+            Item.query.filter_by(title="Grey item").one().image_labels = "Bottle,Tumbler"
+            db.session.commit()
+        since = (datetime.utcnow() - timedelta(hours=6)).isoformat() + "Z"
+        items = self.client.get("/api/retrace", query_string={
+            "stops": "canteen", "since": since, "q": "bottle"}).get_json()["items"]
+        self.assertEqual(items[0]["title"], "Grey item")
+        self.assertGreater(items[0]["score"], items[1]["score"])
+
+    def test_a_path_place_picked_on_the_map_is_always_outside(self):
+        self.register()
+        self.post("/report", data={"title": "Keys", "description": "Bike keys", "category": "Keys",
+                                   "location": "on the way in", "status": "Found",
+                                   "place": "road-main", "place_side": "inside"})
+        with app.app_context():
+            self.assertEqual(Item.query.one().place_side, "outside")
 
     def test_dashboard_insights_count_what_happened(self):
         item_id = self.found_item("Grey phone", category="Electronics")

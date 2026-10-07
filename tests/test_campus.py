@@ -36,6 +36,21 @@ class PlaceWordsTestCase(unittest.TestCase):
         self.assertEqual(self.place("mechnical parkin"), "mech-parking")
         self.assertEqual(self.place("kalashetra"), "kalakshetra")
 
+    def test_loose_matches_of_one_two_and_three_words(self):
+        # Mutation testing showed only two-word misspellings were covered.
+        self.assertEqual(self.place("workshps"), "workshops")
+        self.assertEqual(self.place("kalakshtra"), "kalakshetra")
+        self.assertEqual(self.place("internet of thngs"), "main-block")
+        # Five letters is long enough to match loosely, typed or as the place's own name.
+        self.assertEqual(self.place("garge"), "mech-parking")
+        self.assertEqual(campus.resolve_place("xeroox")["candidates"], ["xerox-mech", "xerox-canteen"])
+
+    def test_a_loose_match_is_cut_out_of_the_search_exactly(self):
+        self.assertEqual(campus.split_search("mesh parking umbrella"), (["mech-parking"], "umbrella"))
+        self.assertEqual(campus.split_search("red umbrella mesh parking"), (["mech-parking"], "red umbrella"))
+        self.assertEqual(campus.split_search("black bag near workshps"), (["workshops"], "black bag"))
+        self.assertEqual(campus.resolve_place("black bag near workshps")["side"], "outside")
+
     def test_words_shared_by_several_places_are_not_guessed(self):
         canteen = campus.resolve_place("near the canteen")
         self.assertIsNone(canteen["place"])
@@ -58,6 +73,19 @@ class PlaceWordsTestCase(unittest.TestCase):
     def test_kannada_and_hindi_words(self):
         self.assertEqual(campus.resolve_place("ಕ್ಯಾಂಟೀನ್ ಹತ್ತಿರ")["candidates"], ["canteen", "puff-shop", "nandini"])
         self.assertEqual(self.place("लाइब्रेरी में"), "main-block")
+
+    def test_everyday_items_are_not_places(self):
+        # Mutation testing found "power bank" landing on the bank in the Main Block.
+        items = ("my pen", "blue cap", "phone case", "lunch box", "id card", "black bag", "water bottle",
+                 "steel tiffin", "grey hoodie", "spectacles", "calculator", "earphones", "umbrella",
+                 "laptop charger", "house keys", "notebook", "helmet", "power bank", "bus pass", "watch",
+                 "pencil box", "textbook", "purse", "wallet", "airpods", "pendrive", "ATM card",
+                 "debit card", "bank passbook")
+        for text in items:
+            self.assertEqual(campus.find_places(text), [], text)
+        self.assertEqual(campus.split_search("power bank in the canteen"),
+                         (["canteen", "puff-shop", "nandini"], "power bank"))
+        self.assertEqual(self.place("lost my ATM card at the ATM"), "atm")
 
     def test_unknown_places_and_item_words_match_nothing(self):
         for text in ("Hostel", "Black Milton bottle", "my bag", ""):

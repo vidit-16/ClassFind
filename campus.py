@@ -66,6 +66,9 @@ def _aliases():
 ALIASES = _aliases()
 # A word like this after a place belongs to it: "computer science lab" is one place.
 TRAILING = r"(?:\s+(?:lab|labs|department|dept|block|room|building|hall|area|side))?"
+# Things people lose whose names contain a place word.
+NOT_PLACES = ("power bank", "powerbank", "piggy bank", "bank card", "bank passbook", "passbook",
+              "atm card", "atm pin", "debit card", "credit card", "tree charm", "gate pass")
 # A loose match may not start or end on one of these, so "near canteen" is not
 # read as a misspelt "main canteen".
 FILLER = {"the", "a", "an", "near", "at", "in", "on", "by", "to", "and", "of", "my", "i", "inside",
@@ -100,6 +103,10 @@ def find_places(text):
     clean = normalise(text)
     if not clean:
         return []
+    # Item names that contain a place word, like "power bank", are blanked out
+    # (keeping positions) so the bank in the Main Block is not matched.
+    for phrase in NOT_PLACES:
+        clean = re.sub(rf"(?<!\w){re.escape(phrase)}(?!\w)", lambda m: " " * len(m.group()), clean)
     found = []
     for alias, ids in ALIASES:
         for match in re.finditer(rf"(?<!\w){re.escape(alias)}{TRAILING}(?!\w)", clean):
